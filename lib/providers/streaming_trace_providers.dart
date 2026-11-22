@@ -1,6 +1,7 @@
 import 'package:ai_chat/models/debug/streaming_trace_snapshot.dart';
 import 'package:ai_chat/services/debug/streaming_trace_recorder.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'chat_collection_providers.dart';
 
 /// Lightweight overlay visibility state for the runtime-only streaming trace UI.
 class StreamingTraceOverlayState {
@@ -54,11 +55,22 @@ class StreamingTraceOverlayController
   }
 }
 
-final streamingTraceRecorderProvider = StateNotifierProvider<
-    StreamingTraceRecorder, StreamingTraceSnapshot?>((ref) {
+final streamingTraceRecorderForGroupProvider = StateNotifierProvider.family<
+    StreamingTraceRecorder, StreamingTraceSnapshot?, int?>((ref, groupId) {
   return StreamingTraceRecorder();
 });
 
+final streamingTraceRecorderProvider = Provider<StreamingTraceSnapshot?>((ref) {
+  return ref.watch(streamingTraceRecorderForGroupProvider(
+      ref.watch(currentGroupProvider)?.id));
+});
+
+final selectedStreamingTraceNotifierProvider =
+    Provider<StreamingTraceRecorder>((ref) {
+  return ref.watch(streamingTraceRecorderForGroupProvider(
+          ref.watch(currentGroupProvider)?.id)
+      .notifier);
+});
 final streamingTraceSnapshotProvider = Provider<StreamingTraceSnapshot?>((ref) {
   return ref.watch(streamingTraceRecorderProvider);
 });

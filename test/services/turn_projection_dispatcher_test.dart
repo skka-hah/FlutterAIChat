@@ -284,7 +284,7 @@ void main() {
       final traceId = streamingTraceIdForTurn(42);
       final startedAt = DateTime(2026, 5, 31, 13, 0, 0);
 
-      container.read(streamingTraceRecorderProvider.notifier).recordStage(
+      container.read(selectedStreamingTraceNotifierProvider).recordStage(
             traceId: traceId,
             turnId: '42',
             stage: StreamingTraceStage.turnStarted,

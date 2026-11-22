@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:io';
+
+import 'package:path/path.dart' as path;
 
 import 'file_tool_models.dart';
 import 'file_tool_post_write_hook.dart';
@@ -108,182 +111,219 @@ class FileToolWriteService {
   final FileToolRootService _rootService;
   final FileToolSessionGuard _sessionGuard;
   final FileToolPostWriteHook _postWriteHook;
+  static final _pendingByPath = <String, Future<void>>{};
+
+  /// Reuses file access and post-write hooks with a session's version history.
+  FileToolWriteService withSessionGuard(FileToolSessionGuard guard) =>
+      FileToolWriteService(
+          rootService: _rootService,
+          sessionGuard: guard,
+          postWriteHook: _postWriteHook);
+
+  Future<T> _withFileLock<T>(
+      String relativePath, Future<T> Function() operation) async {
+    final agentPath = _normalizeAgentPath(relativePath);
+    final filePath = path.normalize(
+        _rootService.resolveHostPath(_relativePathFromAgentPath(agentPath)));
+    final previous = _pendingByPath.entries
+        .where((entry) =>
+            entry.key == filePath ||
+            path.isWithin(entry.key, filePath) ||
+            path.isWithin(filePath, entry.key))
+        .map((entry) => entry.value)
+        .toList(growable: false);
+    final done = Completer<void>();
+    _pendingByPath[filePath] = done.future;
+    try {
+      await Future.wait(previous);
+      return await operation();
+    } finally {
+      done.complete();
+      if (identical(_pendingByPath[filePath], done.future)) {
+        _pendingByPath.remove(filePath);
+      }
+    }
+  }
 
   Future<FileToolWriteOutcome> writeFile({
     required String relativePath,
     required String content,
-  }) async {
-    final agentPath = _normalizeAgentPath(relativePath);
-    final file =
-        _rootService.resolveFile(_relativePathFromAgentPath(agentPath));
-    final fileExists = file.existsSync();
-    String? oldContent;
-    if (fileExists) {
-      oldContent = await file.readAsString();
-      _sessionGuard.assertWritable(
-        filePath: agentPath,
-        currentVersion: _sessionGuard.snapshotForStat(await file.stat()),
-        fileExists: true,
-      );
-    }
+  }) =>
+      _withFileLock(relativePath, () async {
+        final agentPath = _normalizeAgentPath(relativePath);
+        final file =
+            _rootService.resolveFile(_relativePathFromAgentPath(agentPath));
+        final fileExists = file.existsSync();
+        String? oldContent;
+        if (fileExists) {
+          oldContent = await file.readAsString();
+          _sessionGuard.assertWritable(
+            filePath: agentPath,
+            currentVersion: _sessionGuard.snapshotForStat(await file.stat()),
+            fileExists: true,
+          );
+        }
 
-    await file.parent.create(recursive: true);
-    await file.writeAsString(content);
-    final version = _sessionGuard.snapshotForStat(await file.stat());
-    _sessionGuard.markRead(filePath: agentPath, version: version);
-    final postWriteData = await _postWriteHook.afterWrite(
-      FileToolPostWriteContext(
-        filePath: agentPath,
-        oldContent: oldContent,
-        newContent: content,
-      ),
-    );
-    return FileToolWriteOutcome(
-      filePath: agentPath,
-      filePreviouslyExisted: fileExists,
-      version: version,
-      oldLength: oldContent?.length ?? 0,
-      newLength: content.length,
-      replacementCount: 0,
-      oldContentPreview: _previewContent(oldContent ?? ''),
-      newContentPreview: _previewContent(content),
-      contentPreviewTruncated:
-          _isPreviewTruncated(oldContent ?? '') || _isPreviewTruncated(content),
-      postWriteData: postWriteData,
-    );
-  }
+        await file.parent.create(recursive: true);
+        await file.writeAsString(content);
+        final version = _sessionGuard.snapshotForStat(await file.stat());
+        _sessionGuard.markRead(filePath: agentPath, version: version);
+        final postWriteData = await _postWriteHook.afterWrite(
+          FileToolPostWriteContext(
+            filePath: agentPath,
+            oldContent: oldContent,
+            newContent: content,
+          ),
+        );
+        return FileToolWriteOutcome(
+          filePath: agentPath,
+          filePreviouslyExisted: fileExists,
+          version: version,
+          oldLength: oldContent?.length ?? 0,
+          newLength: content.length,
+          replacementCount: 0,
+          oldContentPreview: _previewContent(oldContent ?? ''),
+          newContentPreview: _previewContent(content),
+          contentPreviewTruncated: _isPreviewTruncated(oldContent ?? '') ||
+              _isPreviewTruncated(content),
+          postWriteData: postWriteData,
+        );
+      });
 
   Future<FileToolWriteOutcome> editFile({
     required String relativePath,
     required String oldString,
     required String newString,
     required bool replaceAll,
-  }) async {
-    final agentPath = _normalizeAgentPath(relativePath);
-    final file =
-        _rootService.resolveFile(_relativePathFromAgentPath(agentPath));
-    if (!file.existsSync()) {
-      throw FileToolWriteException('file_not_found');
-    }
+  }) =>
+      _withFileLock(relativePath, () async {
+        final agentPath = _normalizeAgentPath(relativePath);
+        final file =
+            _rootService.resolveFile(_relativePathFromAgentPath(agentPath));
+        if (!file.existsSync()) {
+          throw FileToolWriteException('file_not_found');
+        }
 
-    final currentVersion = _sessionGuard.snapshotForStat(await file.stat());
-    _sessionGuard.assertWritable(
-      filePath: agentPath,
-      currentVersion: currentVersion,
-      fileExists: true,
-    );
+        final currentVersion = _sessionGuard.snapshotForStat(await file.stat());
+        _sessionGuard.assertWritable(
+          filePath: agentPath,
+          currentVersion: currentVersion,
+          fileExists: true,
+        );
 
-    final originalContent = await file.readAsString();
-    final matchCount = _countOccurrences(originalContent, oldString);
-    if (matchCount == 0) {
-      throw FileToolWriteException('old_string_not_found');
-    }
-    if (matchCount > 1 && !replaceAll) {
-      throw FileToolWriteException('ambiguous_old_string');
-    }
+        final originalContent = await file.readAsString();
+        final matchCount = _countOccurrences(originalContent, oldString);
+        if (matchCount == 0) {
+          throw FileToolWriteException('old_string_not_found');
+        }
+        if (matchCount > 1 && !replaceAll) {
+          throw FileToolWriteException('ambiguous_old_string');
+        }
 
-    final nextContent = replaceAll
-        ? originalContent.replaceAll(oldString, newString)
-        : originalContent.replaceFirst(oldString, newString);
-    await file.writeAsString(nextContent);
-    final nextVersion = _sessionGuard.snapshotForStat(await file.stat());
-    _sessionGuard.markRead(filePath: agentPath, version: nextVersion);
-    final postWriteData = await _postWriteHook.afterWrite(
-      FileToolPostWriteContext(
-        filePath: agentPath,
-        oldContent: originalContent,
-        newContent: nextContent,
-      ),
-    );
-    return FileToolWriteOutcome(
-      filePath: agentPath,
-      filePreviouslyExisted: true,
-      version: nextVersion,
-      oldLength: originalContent.length,
-      newLength: nextContent.length,
-      replacementCount: replaceAll ? matchCount : 1,
-      oldContentPreview: _previewContent(originalContent),
-      newContentPreview: _previewContent(nextContent),
-      contentPreviewTruncated: _isPreviewTruncated(originalContent) ||
-          _isPreviewTruncated(nextContent),
-      postWriteData: postWriteData,
-    );
-  }
+        final nextContent = replaceAll
+            ? originalContent.replaceAll(oldString, newString)
+            : originalContent.replaceFirst(oldString, newString);
+        await file.writeAsString(nextContent);
+        final nextVersion = _sessionGuard.snapshotForStat(await file.stat());
+        _sessionGuard.markRead(filePath: agentPath, version: nextVersion);
+        final postWriteData = await _postWriteHook.afterWrite(
+          FileToolPostWriteContext(
+            filePath: agentPath,
+            oldContent: originalContent,
+            newContent: nextContent,
+          ),
+        );
+        return FileToolWriteOutcome(
+          filePath: agentPath,
+          filePreviouslyExisted: true,
+          version: nextVersion,
+          oldLength: originalContent.length,
+          newLength: nextContent.length,
+          replacementCount: replaceAll ? matchCount : 1,
+          oldContentPreview: _previewContent(originalContent),
+          newContentPreview: _previewContent(nextContent),
+          contentPreviewTruncated: _isPreviewTruncated(originalContent) ||
+              _isPreviewTruncated(nextContent),
+          postWriteData: postWriteData,
+        );
+      });
 
   Future<FileToolWriteOutcome> deletePath({
     required String relativePath,
-  }) async {
-    final agentPath = _normalizeAgentPath(relativePath);
-    final fileSystemEntity = _rootService.resolveFile(
-      _relativePathFromAgentPath(agentPath),
-    );
-    final entityType = FileSystemEntity.typeSync(
-      fileSystemEntity.path,
-      followLinks: false,
-    );
-    if (entityType == FileSystemEntityType.notFound) {
-      throw FileToolWriteException('file_not_found');
-    }
+  }) =>
+      _withFileLock(relativePath, () async {
+        final agentPath = _normalizeAgentPath(relativePath);
+        final fileSystemEntity = _rootService.resolveFile(
+          _relativePathFromAgentPath(agentPath),
+        );
+        final entityType = FileSystemEntity.typeSync(
+          fileSystemEntity.path,
+          followLinks: false,
+        );
+        if (entityType == FileSystemEntityType.notFound) {
+          throw FileToolWriteException('file_not_found');
+        }
 
-    if (entityType == FileSystemEntityType.file) {
-      final file = File(fileSystemEntity.path);
-      final originalContent = await file.readAsString();
-      await file.delete();
-      _sessionGuard.clearSeen(agentPath);
-      return FileToolWriteOutcome(
-        filePath: agentPath,
-        filePreviouslyExisted: true,
-        version: const FileToolVersionSnapshot(
-          modifiedAtMillis: 0,
-          sizeBytes: 0,
-        ),
-        oldLength: originalContent.length,
-        newLength: 0,
-        replacementCount: 0,
-        oldContentPreview: _previewContent(originalContent),
-        newContentPreview: '',
-        contentPreviewTruncated: _isPreviewTruncated(originalContent),
-        postWriteData: const {},
-        deletedType: 'file',
-        deletedFileCount: 1,
-        deletedDirectoryCount: 0,
-        hadChildren: false,
-      );
-    }
+        if (entityType == FileSystemEntityType.file) {
+          final file = File(fileSystemEntity.path);
+          final originalContent = await file.readAsString();
+          await file.delete();
+          _sessionGuard.clearSeen(agentPath);
+          return FileToolWriteOutcome(
+            filePath: agentPath,
+            filePreviouslyExisted: true,
+            version: const FileToolVersionSnapshot(
+              modifiedAtMillis: 0,
+              sizeBytes: 0,
+            ),
+            oldLength: originalContent.length,
+            newLength: 0,
+            replacementCount: 0,
+            oldContentPreview: _previewContent(originalContent),
+            newContentPreview: '',
+            contentPreviewTruncated: _isPreviewTruncated(originalContent),
+            postWriteData: const {},
+            deletedType: 'file',
+            deletedFileCount: 1,
+            deletedDirectoryCount: 0,
+            hadChildren: false,
+          );
+        }
 
-    final directory = Directory(fileSystemEntity.path);
-    final children = directory.listSync(recursive: true, followLinks: false);
-    var deletedFileCount = 0;
-    var deletedDirectoryCount = 1;
-    for (final child in children) {
-      if (child is File) {
-        deletedFileCount += 1;
-      } else if (child is Directory) {
-        deletedDirectoryCount += 1;
-      }
-    }
-    await directory.delete(recursive: true);
-    _sessionGuard.clearSeenUnder(agentPath);
-    return FileToolWriteOutcome(
-      filePath: agentPath,
-      filePreviouslyExisted: true,
-      version: const FileToolVersionSnapshot(
-        modifiedAtMillis: 0,
-        sizeBytes: 0,
-      ),
-      oldLength: 0,
-      newLength: 0,
-      replacementCount: 0,
-      oldContentPreview: '',
-      newContentPreview: '',
-      contentPreviewTruncated: false,
-      postWriteData: const {},
-      deletedType: 'directory',
-      deletedFileCount: deletedFileCount,
-      deletedDirectoryCount: deletedDirectoryCount,
-      hadChildren: children.isNotEmpty,
-    );
-  }
+        final directory = Directory(fileSystemEntity.path);
+        final children =
+            directory.listSync(recursive: true, followLinks: false);
+        var deletedFileCount = 0;
+        var deletedDirectoryCount = 1;
+        for (final child in children) {
+          if (child is File) {
+            deletedFileCount += 1;
+          } else if (child is Directory) {
+            deletedDirectoryCount += 1;
+          }
+        }
+        await directory.delete(recursive: true);
+        _sessionGuard.clearSeenUnder(agentPath);
+        return FileToolWriteOutcome(
+          filePath: agentPath,
+          filePreviouslyExisted: true,
+          version: const FileToolVersionSnapshot(
+            modifiedAtMillis: 0,
+            sizeBytes: 0,
+          ),
+          oldLength: 0,
+          newLength: 0,
+          replacementCount: 0,
+          oldContentPreview: '',
+          newContentPreview: '',
+          contentPreviewTruncated: false,
+          postWriteData: const {},
+          deletedType: 'directory',
+          deletedFileCount: deletedFileCount,
+          deletedDirectoryCount: deletedDirectoryCount,
+          hadChildren: children.isNotEmpty,
+        );
+      });
 
   String _previewContent(String content) {
     if (!_isPreviewTruncated(content)) {

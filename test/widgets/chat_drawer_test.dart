@@ -282,10 +282,10 @@ class _RecordingSessionCoordinator extends _StubSessionCoordinator {
 
 class _StubSummaryController implements ChatSummaryController {
   @override
-  void cancelAutoSummaryTimer() {}
+  void cancelAutoSummaryTimer({int? groupId}) {}
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async => null;

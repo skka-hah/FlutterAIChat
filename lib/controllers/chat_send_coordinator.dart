@@ -24,6 +24,7 @@ import 'package:ai_chat/providers/chat_ui_providers.dart';
 import 'package:ai_chat/providers/streaming_trace_providers.dart';
 import 'package:ai_chat/repositories/chat_turn_repository.dart';
 import 'package:ai_chat/services/chat_service.dart';
+import 'package:ai_chat/services/follow_up_dispatch_queue.dart';
 import 'package:ai_chat/services/agent_run_manager.dart';
 import 'package:ai_chat/services/chat_trace_recorder.dart';
 import 'package:ai_chat/services/debug/streaming_trace_recorder.dart';
@@ -73,7 +74,9 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   static const String _tag = 'ChatSendCoordinator';
 
   final Ref _ref;
-  final _draftFollowUps = <ChatGroup, List<SendMessageRequest>>{};
+  final ValueChanged<int>? _onTurnCompleted;
+  final _draftFollowUps = <ChatGroup,
+      List<({SendMessageRequest request, FollowUpRuntime runtime})>>{};
   final _interactionClaims = <int>{};
 
   AgentRunManager get _runs => _ref.read(agentRunManagerProvider);
@@ -82,7 +85,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   MessagesNotifier _messages(int groupId) =>
       _ref.read(messagesForGroupProvider(groupId).notifier);
 
-  DefaultChatSendCoordinator(this._ref);
+  DefaultChatSendCoordinator(this._ref, {ValueChanged<int>? onTurnCompleted})
+      : _onTurnCompleted = onTurnCompleted;
 
   @override
   Future<void> sendMessage(
@@ -98,7 +102,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   }
 
   void recordPlannerRequestTrace(PlannerRequestTraceEvent event) {
-    final traceRecorder = _ref.read(streamingTraceRecorderProvider.notifier);
+    final traceRecorder = _ref
+        .read(streamingTraceRecorderForGroupProvider(event.groupId).notifier);
     final persistentTraceRecorder = _ref.read(traceRecorderProvider);
     final traceId = streamingTraceIdForTurn(event.turnId);
     final details = <String, dynamic>{
@@ -186,7 +191,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     if (groupId == null) {
       final pending = _draftFollowUps[group];
       if (pending != null) {
-        pending.add(request);
+        pending.add(
+            (request: request, runtime: (runtime: runtime, prompt: prompt)));
         return;
       }
       _draftFollowUps[group] = [];
@@ -206,9 +212,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
               persisted.copyWith(id: groupId);
         }
         for (final followUp in _draftFollowUps[group]!) {
-          _ref
-              .read(followUpDispatchQueueProvider)
-              .enqueue(groupId: groupId, request: followUp);
+          _ref.read(followUpDispatchQueueProvider(groupId)).enqueue(
+            groupId: groupId,
+            request: followUp.request,
+            runtime: (
+              runtime: followUp.runtime.runtime?.copyWith(groupId: groupId),
+              prompt: followUp.runtime.prompt,
+            ),
+          );
         }
         unawaited(_loadGroups());
       } finally {
@@ -232,12 +243,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required String? prompt,
     required VoidCallback scheduleAutoSummary,
   }) async {
-    final pending = _ref.read(followUpDispatchQueueProvider);
-    final state = _ref.read(chatSendStateForGroupProvider(groupId));
+    final pending = _ref.read(followUpDispatchQueueProvider(groupId));
     if (_interactionClaims.contains(groupId) ||
-        _runs.mainTurnForGroup(groupId) != null ||
-        state.phase != ChatSendPhase.idle) {
-      pending.enqueue(groupId: groupId, request: request);
+        _runs.mainTurnForGroup(groupId) != null) {
+      pending.enqueue(
+        groupId: groupId,
+        request: request,
+        runtime: (runtime: runtime, prompt: prompt),
+      );
       return;
     }
     final run = _runs.start(
@@ -481,9 +494,10 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         return;
       }
 
-      final turnHarness = _ref.read(turnHarnessProvider);
+      final turnHarness =
+          _ref.read(turnHarnessFactoryProvider)?.call(currentGroupId);
       if (turnHarness == null) {
-        throw StateError('turnHarnessProvider is required');
+        throw StateError('turnHarnessFactoryProvider is required');
       }
       await _sendMessageWithAgentLoop(
         text: preparedInputs.first.text,
@@ -564,7 +578,9 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     final turnRecordId = await turnRepository.createTurn(createdTurn);
     run.bindTurn(turnRecordId);
     final persistedTurn = createdTurn.copyWith(id: turnRecordId);
-    _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
+    _ref
+        .read(streamingTraceRecorderForGroupProvider(currentGroupId).notifier)
+        .recordStage(
       traceId: streamingTraceIdForTurn(turnRecordId),
       turnId: turnRecordId.toString(),
       stage: StreamingTraceStage.turnStarted,
@@ -609,7 +625,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
               'turnRecordId': turnRecordId,
             },
           );
-          if (_ref.read(currentGroupProvider)?.id == currentGroupId) {
+          if (_onTurnCompleted == null &&
+              _ref.read(currentGroupProvider)?.id == currentGroupId) {
             scheduleAutoSummary();
           }
         },
@@ -831,6 +848,9 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required int turnId,
     required AgentEventProcessor processor,
   }) async {
+    if (processor.receivedFinalAnswer) {
+      _onTurnCompleted?.call(groupId);
+    }
     if (processor.hasPendingConfirmation) {
       _sendState(groupId).update(
         isGenerating: false,
@@ -877,7 +897,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required VoidCallback scheduleAutoSummary,
   }) async {
     final pending =
-        _ref.read(followUpDispatchQueueProvider).takeAllForNextTurn(groupId);
+        _ref.read(followUpDispatchQueueProvider(groupId)).takeNextTurn(groupId);
     if (pending.isEmpty) {
       return;
     }
@@ -887,6 +907,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     if (requests.isEmpty) {
       return;
     }
+    final queuedRuntime =
+        pending.first.runtime ?? (runtime: runtime, prompt: prompt);
     await _dispatchToGroup(
       SendMessageRequest(
         text: requests.first.text,
@@ -897,8 +919,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         additionalStartMessages: requests.skip(1).toList(growable: false),
       ),
       groupId: groupId,
-      runtime: runtime,
-      prompt: prompt,
+      runtime: queuedRuntime.runtime,
+      prompt: queuedRuntime.prompt,
       scheduleAutoSummary: scheduleAutoSummary,
     );
   }
@@ -1577,8 +1599,6 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return;
     }
     final request = AskUserQuestionRequest.fromJson(payload);
-    final harness = _ref.read(turnHarnessProvider);
-    if (harness == null) return;
     final groupId = currentGroup!.id!;
     await _resumeInteraction(
       groupId: groupId,
@@ -1595,7 +1615,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         response: response,
         dbHelper: _ref.read(databaseProvider),
       ),
-      stream: (config) => harness.resumeAfterQuestionAnswered(
+      stream: (harness, config) => harness.resumeAfterQuestionAnswered(
         turnId: turnId,
         request: request,
         response: response,
@@ -1611,9 +1631,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required bool trustTool,
     required ChatMessage sourceMessage,
   }) async {
-    final harness = _ref.read(turnHarnessProvider);
     final groupId = _ref.read(currentGroupProvider)?.id;
-    if (harness == null || groupId == null || sourceMessage.id == null) return;
+    if (groupId == null || sourceMessage.id == null) return;
     await _resumeInteraction(
       groupId: groupId,
       turnId: turnId,
@@ -1629,7 +1648,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         sourceMessageId: sourceMessage.id!,
         dbHelper: _ref.read(databaseProvider),
       ),
-      stream: (config) => harness.resumeAfterConfirmation(
+      stream: (harness, config) => harness.resumeAfterConfirmation(
         turnId: turnId,
         invocation: invocation,
         config: config,
@@ -1644,8 +1663,11 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required ChatMessage sourceMessage,
     required ChatTurnStatus expectedStatus,
     required AgentEventProcessor Function(AgentRun run) buildProcessor,
-    required Stream<ChatEvent> Function(ChatConfig config) stream,
+    required Stream<ChatEvent> Function(TurnHarness harness, ChatConfig config)
+        stream,
   }) async {
+    final createHarness = _ref.read(turnHarnessFactoryProvider);
+    if (createHarness == null) return;
     final runtime = _ref.read(currentSessionRuntimeConfigProvider);
     final prompt = _ref.read(systemPromptProvider);
     if (!_interactionClaims.add(groupId)) return;
@@ -1665,7 +1687,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
             final processor = buildProcessor(run);
             await _runAgentEventStream(
               run: run,
-              stream: stream(config),
+              stream: stream(createHarness(groupId), config),
               processor: processor,
               onError: (error, stack, completion) =>
                   completion.completeError(error, stack),

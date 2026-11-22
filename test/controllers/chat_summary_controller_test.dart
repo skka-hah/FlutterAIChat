@@ -217,4 +217,7 @@ class _SummaryTestChatStorage extends Fake implements ChatStorage {
 
   @override
   Future<ChatGroup?> getGroupById(int id) async => _groups[id];
+
+  @override
+  Future<List<ChatGroup>> getAllGroups() async => _groups.values.toList();
 }

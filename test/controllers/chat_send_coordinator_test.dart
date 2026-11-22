@@ -849,7 +849,8 @@ void main() {
       await _waitForSendPhase(container, ChatSendPhase.streamingResponse);
 
       final turnId = harness.recordedTurns.single.id!;
-      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
+      final dispatcher = container.read(turnProjectionDispatcherProvider(
+          container.read(currentGroupProvider)?.id));
       await dispatcher.dispatchPreviewEvent(
         StreamingMessageStartEvent(
           messageId: 'preview_1',
@@ -1862,7 +1863,9 @@ void main() {
       final messageId =
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = messageId;
-      container.read(selectedMessagesNotifierProvider).addMessage(confirmationMessage);
+      container
+          .read(selectedMessagesNotifierProvider)
+          .addMessage(confirmationMessage);
 
       await container.read(chatSendCoordinatorProvider).confirmToolInvocation(
             confirmationMessage,
@@ -1970,7 +1973,9 @@ void main() {
       final promptMessageId =
           await databaseHelper.insertMessage(promptMessage, groupId);
       promptMessage.id = promptMessageId;
-      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
+      container
+          .read(selectedMessagesNotifierProvider)
+          .addMessage(promptMessage);
 
       await container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
             promptMessage,
@@ -2051,7 +2056,7 @@ Future<ProviderContainer> _createContainer({
       appSettingsRepositoryProvider
           .overrideWith((ref) => resolvedSettingsRepository),
       chatServiceProvider.overrideWith((ref) => ChatService(llm: resolvedLlm)),
-      turnHarnessProvider.overrideWith((ref) => harness),
+      turnHarnessFactoryProvider.overrideWith((ref) => (_) => harness),
       if (skillRuntimeService != null)
         skillRuntimeServiceProvider.overrideWith((ref) => skillRuntimeService),
       if (skillRuntimeService == null)

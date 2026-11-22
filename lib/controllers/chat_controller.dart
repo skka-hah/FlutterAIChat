@@ -38,17 +38,15 @@ class ChatController {
   }
 
   Future<void> loadCurrentGroup() async {
-    _summaryController.cancelAutoSummaryTimer();
     await _sessionCoordinator.loadCurrentGroup();
   }
 
   Future<void> createNewGroup() async {
-    _summaryController.cancelAutoSummaryTimer();
     await _sessionCoordinator.createNewGroup();
   }
 
   Future<void> deleteGroup(int id) async {
-    _summaryController.cancelAutoSummaryTimer();
+    _summaryController.cancelAutoSummaryTimer(groupId: id);
     await _sessionCoordinator.deleteGroup(id);
   }
 
@@ -152,7 +150,6 @@ class ChatController {
   }
 
   Future<void> selectGroup(ChatGroup group) async {
-    _summaryController.cancelAutoSummaryTimer();
     await _sessionCoordinator.selectGroup(group);
   }
 
@@ -173,7 +170,9 @@ class ChatController {
           statusText: '正在压缩历史上下文',
         );
     try {
-      final result = await _ref.read(sessionContextServiceProvider).compactCompletedHistoryForGroup(
+      final result = await _ref
+          .read(sessionContextServiceProvider)
+          .compactCompletedHistoryForGroup(
             groupId: groupId,
           );
       if (result.didCompactHistory) {

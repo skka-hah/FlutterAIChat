@@ -157,22 +157,19 @@ class ChatSendLiveTestHarness {
         '${selectionReason == null ? '' : ' ($selectionReason)'}',
       );
     }
-    final activeProviderStyle =
-        providerStyle ??
+    final activeProviderStyle = providerStyle ??
         (selectedProvider == null
             ? ChatTurnProviderStyle.openaiChatCompletions
             : const ApiProtocolResolver()
                 .resolveStyle(selectedProvider.baseUrl)
                 .toChatTurnProviderStyle());
-    final providerProfile =
-        selectedProvider == null
-            ? const HeadlessLiveProviderProfile(
-                askUserInteraction: StructuredCheckpointExpectation.required,
-                toolConfirmation: StructuredCheckpointExpectation.required,
-                multiToolContinuation:
-                    StructuredCheckpointExpectation.required,
-              )
-            : resolveHeadlessLiveProviderProfile(selectedProvider.id);
+    final providerProfile = selectedProvider == null
+        ? const HeadlessLiveProviderProfile(
+            askUserInteraction: StructuredCheckpointExpectation.required,
+            toolConfirmation: StructuredCheckpointExpectation.required,
+            multiToolContinuation: StructuredCheckpointExpectation.required,
+          )
+        : resolveHeadlessLiveProviderProfile(selectedProvider.id);
 
     _chatSendLiveDatabaseCounter += 1;
     final databaseName =
@@ -296,7 +293,7 @@ class ChatSendLiveTestHarness {
         databaseProvider.overrideWith((ref) => databaseHelper),
         traceRecorderProvider.overrideWithValue(traceRecorder),
         chatServiceFactoryProvider.overrideWithValue(chatService),
-        turnHarnessProvider.overrideWithValue(turnHarness),
+        turnHarnessFactoryProvider.overrideWithValue((_) => turnHarness),
         scrollControllerProvider.overrideWith((ref) => ScrollController()),
         textControllerProvider.overrideWith((ref) => TextEditingController()),
         focusNodeProvider.overrideWith((ref) => FocusNode()),
@@ -390,7 +387,8 @@ class ChatSendLiveTestHarness {
     final projection = container.read(chatTimelineProjectionProvider);
     final trace = container.read(streamingTraceSnapshotProvider);
     return ChatSendLiveProjectionSample(
-      runtimePreviewMessageCount: projection.runtimePreviewState.messages.length,
+      runtimePreviewMessageCount:
+          projection.runtimePreviewState.messages.length,
       assistantBlocks: projection.assistantBlocks
           .map(_toProjectionBlockSnapshot)
           .toList(growable: false),
@@ -493,7 +491,9 @@ class ChatSendLiveTestHarness {
     bool autoConfirmTools = true,
   }) async {
     final checkpoints = <ChatSendLiveStateSnapshot>[];
-    for (var continuation = 0; continuation <= maxContinuations; continuation += 1) {
+    for (var continuation = 0;
+        continuation <= maxContinuations;
+        continuation += 1) {
       final state = await snapshotState();
       checkpoints.add(state);
       final status = state.latestTurn?.status;
@@ -590,22 +590,25 @@ class ChatSendLiveTestHarness {
     String? label,
     String? apiStyle,
   }) {
-    return _llmTraceEntries.where((entry) {
-      if (entry['message'] != 'llm.request.done') {
-        return false;
-      }
-      final data = entry['data'];
-      if (data is! Map<String, dynamic>) {
-        return false;
-      }
-      if (label != null && data['label'] != label) {
-        return false;
-      }
-      if (apiStyle != null && data['apiStyle'] != apiStyle) {
-        return false;
-      }
-      return true;
-    }).map(Map<String, dynamic>.from).toList(growable: false);
+    return _llmTraceEntries
+        .where((entry) {
+          if (entry['message'] != 'llm.request.done') {
+            return false;
+          }
+          final data = entry['data'];
+          if (data is! Map<String, dynamic>) {
+            return false;
+          }
+          if (label != null && data['label'] != label) {
+            return false;
+          }
+          if (apiStyle != null && data['apiStyle'] != apiStyle) {
+            return false;
+          }
+          return true;
+        })
+        .map(Map<String, dynamic>.from)
+        .toList(growable: false);
   }
 
   Future<void> clearLogFile() async {
@@ -676,10 +679,11 @@ class ChatSendLiveTestHarness {
       id: groupId,
       title: 'Headless Live Test',
     );
-    final currentRuntime = container.read(currentSessionRuntimeConfigProvider) ??
-        await container
-            .read(sessionRuntimeConfigServiceProvider)
-            .createDraftRuntime();
+    final currentRuntime =
+        container.read(currentSessionRuntimeConfigProvider) ??
+            await container
+                .read(sessionRuntimeConfigServiceProvider)
+                .createDraftRuntime();
     final persistedRuntime = currentRuntime.copyWith(groupId: groupId);
     await databaseHelper.insertSessionRuntimeConfig(persistedRuntime);
     container.read(currentSessionRuntimeConfigProvider.notifier).state =

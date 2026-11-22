@@ -1845,10 +1845,10 @@ class _NoopChatSessionCoordinator implements ChatSessionCoordinator {
 
 class _NoopChatSummaryController implements ChatSummaryController {
   @override
-  void cancelAutoSummaryTimer() {}
+  void cancelAutoSummaryTimer({int? groupId}) {}
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async => null;

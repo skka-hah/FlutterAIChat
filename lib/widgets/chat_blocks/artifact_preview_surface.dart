@@ -2075,7 +2075,7 @@ class _ArtifactPreviewSurfaceState extends State<ArtifactPreviewSurface>
     }
     try {
       final container = ProviderScope.containerOf(context, listen: false);
-      final recorder = container.read(streamingTraceRecorderProvider.notifier);
+      final recorder = container.read(selectedStreamingTraceNotifierProvider);
       _streamingVisibilityReporter.recordArtifactPreviewFirstVisible(
         recorder: recorder,
         turnId: turnId,

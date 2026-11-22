@@ -24,4 +24,18 @@ class FileToolHostAdapters {
   final FileToolReadFormatter readFormatter;
   final FileToolDiscoveryService discoveryService;
   final FileToolWriteService? writeService;
+
+  /// Creates independent read-before-write history for a conversation.
+  FileToolHostAdapters forSession() {
+    final guard = FileToolSessionGuard();
+    return FileToolHostAdapters(
+      rootService: rootService,
+      pathPolicy: pathPolicy,
+      sessionGuard: guard,
+      budgetService: budgetService,
+      readFormatter: readFormatter,
+      discoveryService: discoveryService,
+      writeService: writeService?.withSessionGuard(guard),
+    );
+  }
 }

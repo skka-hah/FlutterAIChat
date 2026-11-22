@@ -117,9 +117,9 @@ void main() {
         MessageStatus.interrupted);
   });
 
-  group('group switches cancel auto-summary timer', () {
+  group('session owns its auto-summary timer', () {
     Future<void> runCase(
-      String description,
+      int? cancelledGroup,
       Future<void> Function(ChatController controller) action,
     ) async {
       final summarySpy = _SpyChatSummaryController();
@@ -143,27 +143,26 @@ void main() {
       await action(controller);
 
       expect(
-        summarySpy.cancelCalls,
-        1,
-        reason: '$description should cancel auto-summary timer exactly once',
+        summarySpy.cancelledGroups,
+        cancelledGroup == null ? isEmpty : [cancelledGroup],
       );
     }
 
-    test('loadCurrentGroup cancels', () async {
-      await runCase('loadCurrentGroup', (c) => c.loadCurrentGroup());
+    test('loadCurrentGroup preserves pending summaries', () async {
+      await runCase(null, (c) => c.loadCurrentGroup());
     });
-    test('createNewGroup cancels', () async {
-      await runCase('createNewGroup', (c) => c.createNewGroup());
+    test('createNewGroup preserves pending summaries', () async {
+      await runCase(null, (c) => c.createNewGroup());
     });
-    test('deleteGroup cancels', () async {
-      await runCase('deleteGroup', (c) => c.deleteGroup(1));
+    test('deleteGroup cancels the deleted group summary', () async {
+      await runCase(1, (c) => c.deleteGroup(1));
     });
-    test('selectGroup cancels', () async {
+    test('selectGroup preserves pending summaries', () async {
       final group = ChatGroup(
           id: 1,
           title: '新对话 1',
           systemPrompt: '');
-      await runCase('selectGroup', (c) => c.selectGroup(group));
+      await runCase(null, (c) => c.selectGroup(group));
     });
   });
 
@@ -567,15 +566,15 @@ void main() {
 }
 
 class _SpyChatSummaryController implements ChatSummaryController {
-  int cancelCalls = 0;
+  final cancelledGroups = <int?>[];
 
   @override
-  void cancelAutoSummaryTimer() {
-    cancelCalls += 1;
+  void cancelAutoSummaryTimer({int? groupId}) {
+    cancelledGroups.add(groupId);
   }
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async => null;
@@ -702,10 +701,10 @@ class _RecordingChatSessionCoordinator extends _NoopChatSessionCoordinator {
 
 class _NoopChatSummaryController implements ChatSummaryController {
   @override
-  void cancelAutoSummaryTimer() {}
+  void cancelAutoSummaryTimer({int? groupId}) {}
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async => null;

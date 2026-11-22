@@ -234,9 +234,8 @@ void main() {
 
       final groupId =
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
-      container.read(currentGroupProvider.notifier).state = ChatGroup(
-        id: groupId,
-        title: 'group');
+      container.read(currentGroupProvider.notifier).state =
+          ChatGroup(id: groupId, title: 'group');
 
       await container
           .read(chatControllerProvider)
@@ -1460,7 +1459,9 @@ void main() {
         contentType: MessageContentType.askUserQuestionPrompt,
         payloadJson: promptPayload,
       );
-      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
+      container
+          .read(selectedMessagesNotifierProvider)
+          .addMessage(promptMessage);
 
       await container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
             promptMessage,
@@ -1566,7 +1567,9 @@ void main() {
         contentType: MessageContentType.askUserQuestionPrompt,
         payloadJson: promptPayload,
       );
-      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
+      container
+          .read(selectedMessagesNotifierProvider)
+          .addMessage(promptMessage);
 
       final future =
           container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
@@ -1585,7 +1588,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(container.read(sendPhaseProvider), isNot(ChatSendPhase.idle));
-      expect(container.read(agentRunManagerProvider).mainTurnForGroup(groupId)?.turnId, 42);
+      expect(
+          container
+              .read(agentRunManagerProvider)
+              .mainTurnForGroup(groupId)
+              ?.turnId,
+          42);
 
       resumeQuestionGate.complete();
       await future;
@@ -1956,7 +1964,8 @@ int _testDatabaseCounter = 0;
 DatabaseHelper _createTestDatabaseHelper() {
   _testDatabaseCounter += 1;
   return DatabaseHelper(
-    databaseName: 'chat_controller_tool_flow_test_${DateTime.now().microsecondsSinceEpoch}_$_testDatabaseCounter.db',
+    databaseName:
+        'chat_controller_tool_flow_test_${DateTime.now().microsecondsSinceEpoch}_$_testDatabaseCounter.db',
   );
 }
 
@@ -1979,7 +1988,8 @@ ProviderContainer _createContainer({
       ),
       if (coordinator != null)
         chatSendCoordinatorProvider.overrideWith((ref) => coordinator),
-      if (harness != null) turnHarnessProvider.overrideWith((ref) => harness),
+      if (harness != null)
+        turnHarnessFactoryProvider.overrideWith((ref) => (_) => harness),
       if (sessionCoordinator != null)
         chatSessionCoordinatorProvider
             .overrideWith((ref) => sessionCoordinator),
@@ -2107,7 +2117,8 @@ class _FakeTurnHarness extends TurnHarness {
     }
     for (final event in events) {
       if (event.eventType == ChatEventType.assistantToolConfirmation) {
-        await ChatTurnRepository(databaseHelper).markAwaitingToolConfirmation(turn.id!);
+        await ChatTurnRepository(databaseHelper)
+            .markAwaitingToolConfirmation(turn.id!);
       }
       yield ChatEvent(
         turnId: turn.id ?? event.turnId,
@@ -2371,12 +2382,12 @@ class _FakeChatSummaryController implements ChatSummaryController {
   int cancelTimerCalls = 0;
 
   @override
-  void cancelAutoSummaryTimer() {
+  void cancelAutoSummaryTimer({int? groupId}) {
     cancelTimerCalls += 1;
   }
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async {

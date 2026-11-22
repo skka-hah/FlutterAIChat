@@ -1216,13 +1216,13 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(streamingTraceRecorderProvider.notifier).recordStage(
+    container.read(selectedStreamingTraceNotifierProvider).recordStage(
           traceId: 'trace_1',
           turnId: 'turn_1',
           stage: StreamingTraceStage.finalTakeover,
           timestamp: DateTime(2026, 5, 31, 12, 0, 0),
         );
-    container.read(streamingTraceRecorderProvider.notifier).markCompleted(
+    container.read(selectedStreamingTraceNotifierProvider).markCompleted(
           traceId: 'trace_1',
           takeoverAt: DateTime(2026, 5, 31, 12, 0, 0, 0, 50),
         );
@@ -1655,10 +1655,10 @@ class _CountingSessionCoordinator implements ChatSessionCoordinator {
 
 class _StubSummaryController implements ChatSummaryController {
   @override
-  void cancelAutoSummaryTimer() {}
+  void cancelAutoSummaryTimer({int? groupId}) {}
 
   @override
-  void scheduleAutoSummary() {}
+  void scheduleAutoSummary({int? groupId}) {}
 
   @override
   Future<String?> summarizeAndUpdateTitle() async => null;

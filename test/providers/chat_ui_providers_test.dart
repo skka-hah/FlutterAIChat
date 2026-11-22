@@ -267,7 +267,7 @@ void main() {
 
       expect(container.read(streamingTraceSnapshotProvider), isNotNull);
 
-      container.read(streamingTraceRecorderProvider.notifier).clear();
+      container.read(selectedStreamingTraceNotifierProvider).clear();
       expect(container.read(streamingTraceSnapshotProvider), isNull);
 
       container.read(chatTimelineProjectionProvider);

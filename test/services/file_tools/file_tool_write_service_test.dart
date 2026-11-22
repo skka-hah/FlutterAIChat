@@ -31,6 +31,24 @@ void main() {
       }
     });
 
+    test('a different session cannot reuse the first session read', () async {
+      final file = rootService.resolveFile('memories/demo.md');
+      await file.parent.create(recursive: true);
+      await file.writeAsString('original');
+      guard.markRead(
+        filePath: '/memories/demo.md',
+        version: guard.snapshotForStat(await file.stat()),
+      );
+      final otherSession = service.withSessionGuard(FileToolSessionGuard());
+      await expectLater(
+        otherSession.writeFile(
+            relativePath: 'memories/demo.md', content: 'other'),
+        throwsA(isA<FileToolGuardException>()
+            .having((error) => error.code, 'code', 'unread_file')),
+      );
+      expect(await file.readAsString(), 'original');
+    });
+
     test('write rejects overwriting an unread existing file', () async {
       final file = File('${rootService.rootPath}/memories/demo.md');
       await file.create(recursive: true);

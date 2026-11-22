@@ -1,4 +1,5 @@
 import 'package:ai_chat/bootstrap/app_bootstrap_state.dart';
+import 'package:ai_chat/services/file_tools/file_tool_host_adapters.dart';
 import 'package:ai_chat/bootstrap/app_runtime.dart';
 import 'package:ai_chat/bootstrap/bootstrap_startup_probe.dart';
 import 'package:ai_chat/repositories/app_settings_repository.dart';
@@ -80,8 +81,7 @@ final databaseProvider = Provider<ChatStorage>((ref) {
 class AppBootstrapStateNotifier
     extends StateNotifier<AppBootstrapState<Object?>> {
   AppBootstrapStateNotifier([
-    super.initialState =
-        const AppBootstrapState<Object?>.ready(null),
+    super.initialState = const AppBootstrapState<Object?>.ready(null),
   ]);
 
   void update(AppBootstrapState<Object?> nextState) {
@@ -161,9 +161,16 @@ final chatAttachmentStorageServiceProvider =
   return ref.watch(appBootstrapRuntimeProvider)?.chatAttachmentStorageService;
 });
 
-final fileToolRootServiceProvider =
-    Provider<FileToolRootService?>((ref) {
+final fileToolRootServiceProvider = Provider<FileToolRootService?>((ref) {
   return ref.watch(appBootstrapRuntimeProvider)?.fileToolRootService;
+});
+
+final fileToolHostAdaptersForGroupProvider =
+    Provider.family<FileToolHostAdapters?, int>((ref, groupId) {
+  return ref
+      .watch(appBootstrapRuntimeProvider)
+      ?.fileToolHostAdapters
+      ?.forSession();
 });
 
 final chatAttachmentHostFileResolverProvider =
@@ -223,9 +230,10 @@ final traceRecorderProvider = Provider<ChatTraceRecorder>((ref) {
   return ChatTraceRecorder();
 });
 
-final followUpDispatchQueueProvider = Provider<FollowUpDispatchQueue>((ref) {
-  return ref.watch(appBootstrapRuntimeProvider)?.followUpDispatchQueue ??
-      FollowUpDispatchQueue();
+/// Pending input belongs to the target session across execution attempts.
+final followUpDispatchQueueProvider =
+    Provider.family<FollowUpDispatchQueue, int>((ref, groupId) {
+  return FollowUpDispatchQueue();
 });
 
 final activeTurnStatusResolverProvider =
@@ -323,7 +331,8 @@ final chatTurnRepositoryProvider = Provider<ChatTurnRepository>((ref) {
 });
 
 final chatEventRepositoryProvider = Provider<ChatEventRepository>((ref) {
-  return ChatEventRepository(ref.watch(databaseProvider));
+  return ref.watch(appBootstrapRuntimeProvider)?.chatEventRepository ??
+      ChatEventRepository(ref.watch(databaseProvider));
 });
 
 final sessionContextSnapshotRepositoryProvider =
@@ -514,8 +523,8 @@ final sessionContextInspectorServiceProvider =
   );
 });
 
-final turnHarnessProvider = Provider<TurnHarness?>((ref) {
-  return ref.watch(appBootstrapRuntimeProvider)?.turnHarness;
+final turnHarnessFactoryProvider = Provider<TurnHarness Function(int)?>((ref) {
+  return ref.watch(appBootstrapRuntimeProvider)?.createTurnHarness;
 });
 
 CompactToolRowModel _buildReadWorkflowRow(List<ToolWorkflowStep> steps) {

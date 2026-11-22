@@ -109,7 +109,7 @@ class _FinalResponseBlockState extends ConsumerState<FinalResponseBlock> {
         text.isEmpty) {
       return;
     }
-    final recorder = ref.read(streamingTraceRecorderProvider.notifier);
+    final recorder = ref.read(selectedStreamingTraceNotifierProvider);
     final now = DateTime.now();
     if (!_hasReportedFirstVisible) {
       _hasReportedFirstVisible = true;

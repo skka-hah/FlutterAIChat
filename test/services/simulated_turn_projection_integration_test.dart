@@ -218,29 +218,38 @@ void main() {
       final cId = await database.insertGroup(c);
       final llm = _GatedDecisionLLM([aId, bId, cId]);
       late ProviderContainer container;
-      final planner = AgentPlannerService(
-        llm: llm,
-        toolPolicyService: await _createToolPolicyService(),
-        onPlannerRuntimeStream: (event) {
-          final metadata = event.runtimeMetadata!;
-          unawaited(container
-              .read(turnProjectionDispatcherProvider(
-                  metadata['streamGroupId'] as int))
-              .dispatchPreviewEvent(event,
-                  runId: metadata['streamRunId'] as int));
-        },
-      );
-      final harness = _createHarness(
+      final policy = await _createToolPolicyService();
+      final harnesses = <int, TurnHarness>{};
+      TurnHarness createHarness(int groupId) {
+        final planner = AgentPlannerService(
+          llm: llm,
+          toolPolicyService: policy,
+          onPlannerRuntimeStream: (event) {
+            final metadata = event.runtimeMetadata!;
+            unawaited(container
+                .read(turnProjectionDispatcherProvider(
+                    metadata['streamGroupId'] as int))
+                .dispatchPreviewEvent(event,
+                    runId: metadata['streamRunId'] as int));
+          },
+        );
+        final harness = _createHarness(
+          databaseHelper: database,
+          planner: planner,
+          toolCallService: _QueuedToolCallService(
+            chatStorage: database,
+            definitions: {},
+            queuedResultsByTool: {},
+          ),
+        );
+        harnesses[groupId] = harness;
+        return harness;
+      }
+
+      container = await _createContainer(
         databaseHelper: database,
-        planner: planner,
-        toolCallService: _QueuedToolCallService(
-          chatStorage: database,
-          definitions: {},
-          queuedResultsByTool: {},
-        ),
+        harnessFactory: createHarness,
       );
-      container =
-          await _createContainer(databaseHelper: database, harness: harness);
       addTearDown(container.dispose);
       final chat = container.read(chatControllerProvider);
 
@@ -250,6 +259,7 @@ void main() {
       await chat.selectGroup(b.copyWith(id: bId));
       final sendB = chat.sendMessage('request B');
       await llm.started[bId]!.future;
+      expect(harnesses[aId], isNot(same(harnesses[bId])));
       expect(llm.finish[aId]!.isCompleted, isFalse);
 
       await chat.selectGroup(c.copyWith(id: cId));
@@ -258,6 +268,7 @@ void main() {
       chat.cancelStreamSubscription();
       await sendC;
       expect(llm.started[cId]!.isCompleted, isFalse);
+      expect(harnesses.containsKey(cId), isFalse);
 
       await chat.selectGroup(a.copyWith(id: aId));
       expect(
@@ -491,8 +502,7 @@ void main() {
           ChatTurnStatus.completed);
     });
 
-    test(
-        'another session completes while A waits for tool confirmation',
+    test('another session completes while A waits for tool confirmation',
         () async {
       final databaseHelper = _createTestDatabaseHelper();
       final toolPolicyService = await _createToolPolicyService();
@@ -641,7 +651,8 @@ void main() {
       await chat.selectGroup(ChatGroup(id: bId, title: 'B'));
       await chat.confirmToolInvocation(pending.message);
       await chat.sendMessage('Start B');
-      expect((await databaseHelper.getMessagesByGroup(bId)).last.text, 'B complete');
+      expect((await databaseHelper.getMessagesByGroup(bId)).last.text,
+          'B complete');
       expect((await turnRepository.getTurn(turnId))!.status,
           ChatTurnStatus.awaitingToolConfirmation);
       await chat.selectGroup(ChatGroup(id: groupId, title: 'projection group'));
@@ -1737,7 +1748,8 @@ TurnHarness _createHarness({
 
 Future<ProviderContainer> _createContainer({
   required DatabaseHelper databaseHelper,
-  required TurnHarness harness,
+  TurnHarness? harness,
+  TurnHarness Function(int groupId)? harnessFactory,
 }) async {
   SharedPreferences.setMockInitialValues({});
   final preferences = await SharedPreferences.getInstance();
@@ -1750,7 +1762,9 @@ Future<ProviderContainer> _createContainer({
       databaseProvider.overrideWith((ref) => databaseHelper),
       sharedPreferencesProvider.overrideWith((ref) => preferences),
       appSettingsRepositoryProvider.overrideWith((ref) => settingsRepository),
-      turnHarnessProvider.overrideWith((ref) => harness),
+      turnHarnessFactoryProvider.overrideWith(
+        (ref) => harnessFactory ?? (_) => harness!,
+      ),
       chatServiceProvider
           .overrideWith((ref) => ChatService(llm: _NoopBaseLLM())),
     ],

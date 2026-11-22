@@ -1,3 +1,5 @@
+import '../utils/serial_operations.dart';
+
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,18 +33,21 @@ class WebChatStorage implements ChatStorage {
   static const String _turnStepsKey = 'web.chat_turn_steps';
 
   final SharedPreferences _preferences;
+  static final _writesByPreferences = Expando<SerialOperations>();
+  SerialOperations get _writes =>
+      _writesByPreferences[_preferences] ??= SerialOperations();
 
   WebChatStorage(this._preferences);
 
   @override
-  Future<int> insertGroup(ChatGroup group) async {
-    final groups = await _readGroups();
-    final nextId = _nextId(groups.map((item) => item['id'] as int?));
-    final storedGroup = group.copyWith(id: nextId);
-    groups.add(storedGroup.toMap());
-    await _writeGroups(groups);
-    return nextId;
-  }
+  Future<int> insertGroup(ChatGroup group) => _writes.run(() async {
+        final groups = await _readGroups();
+        final nextId = _nextId(groups.map((item) => item['id'] as int?));
+        final storedGroup = group.copyWith(id: nextId);
+        groups.add(storedGroup.toMap());
+        await _writeGroups(groups);
+        return nextId;
+      });
 
   @override
   Future<List<ChatGroup>> getAllGroups() async {
@@ -71,7 +76,10 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateGroupLastMessageTime(int groupId) async {
+  Future<void> updateGroupLastMessageTime(int groupId) =>
+      _writes.run(() => _updateGroupLastMessageTime(groupId));
+
+  Future<void> _updateGroupLastMessageTime(int groupId) async {
     final groups = await _readGroups();
     final updated = groups.map((group) {
       if (group['id'] != groupId) {
@@ -86,115 +94,124 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateGroupWorkspaceId(int groupId, String? workspaceId) async {
-    final groups = await _readGroups();
-    final updated = groups.map((group) {
-      if (group['id'] != groupId) {
-        return group;
-      }
-      return {
-        ...group,
-        'workspace_id': workspaceId,
-      };
-    }).toList();
-    await _writeGroups(updated);
-  }
+  Future<void> updateGroupWorkspaceId(int groupId, String? workspaceId) =>
+      _writes.run(() async {
+        final groups = await _readGroups();
+        final updated = groups.map((group) {
+          if (group['id'] != groupId) {
+            return group;
+          }
+          return {
+            ...group,
+            'workspace_id': workspaceId,
+          };
+        }).toList();
+        await _writeGroups(updated);
+      });
 
   @override
-  Future<void> updateGroupSystemPrompt(
-      int groupId, String? systemPrompt) async {
-    final groups = await _readGroups();
-    final updated = groups.map((group) {
-      if (group['id'] != groupId) {
-        return group;
-      }
-      return {
-        ...group,
-        'system_prompt': systemPrompt,
-      };
-    }).toList();
-    await _writeGroups(updated);
-  }
+  Future<void> updateGroupSystemPrompt(int groupId, String? systemPrompt) =>
+      _writes.run(() async {
+        final groups = await _readGroups();
+        final updated = groups.map((group) {
+          if (group['id'] != groupId) {
+            return group;
+          }
+          return {
+            ...group,
+            'system_prompt': systemPrompt,
+          };
+        }).toList();
+        await _writeGroups(updated);
+      });
 
   @override
   Future<void> updateGroupTitle(int groupId, String title,
-      {bool isSummarized = true}) async {
-    final groups = await _readGroups();
-    final updated = groups.map((group) {
-      if (group['id'] != groupId) {
-        return group;
-      }
-      return {
-        ...group,
-        'title': title,
-        'is_summarized': isSummarized ? 1 : 0,
-      };
-    }).toList();
-    await _writeGroups(updated);
-  }
+          {bool isSummarized = true}) =>
+      _writes.run(() async {
+        final groups = await _readGroups();
+        final updated = groups.map((group) {
+          if (group['id'] != groupId) {
+            return group;
+          }
+          return {
+            ...group,
+            'title': title,
+            'is_summarized': isSummarized ? 1 : 0,
+          };
+        }).toList();
+        await _writeGroups(updated);
+      });
 
   @override
-  Future<void> deleteGroup(int groupId) async {
-    final events = await _readEvents();
-    final groups = await _readGroups();
-    final messages = await _readMessages();
-    final attachments = await _readMessageAttachments();
-    final snapshots = await _readSessionContextSnapshots();
-    final runtimeMarkers = await _readSessionRuntimeMarkers();
-    final artifacts = await _readArtifactRegistry();
-    final turns = await _readTurns();
-    final turnSteps = await _readTurnSteps();
-    await _writeEvents(
-        events.where((event) => event['group_id'] != groupId).toList());
-    await _writeGroups(
-        groups.where((group) => group['id'] != groupId).toList());
-    await _writeMessages(
-        messages.where((message) => message['group_id'] != groupId).toList());
-    final deletedMessageIds = messages
-        .where((message) => message['group_id'] == groupId)
-        .map((message) => message['id'])
-        .toSet();
-    await _writeMessageAttachments(
-      attachments
-          .where(
-            (attachment) =>
-                !deletedMessageIds.contains(attachment['message_id']),
-          )
-          .toList(),
-    );
-    await _writeSessionContextSnapshots(
-      snapshots.where((snapshot) => snapshot['group_id'] != groupId).toList(),
-    );
-    await _writeSessionRuntimeMarkers(
-      runtimeMarkers.where((marker) => marker['group_id'] != groupId).toList(),
-    );
-    await _writeArtifactRegistry(
-      artifacts.where((artifact) => artifact['group_id'] != groupId).toList(),
-    );
-    await _writeTurns(
-        turns.where((turn) => turn['group_id'] != groupId).toList());
-    final deletedTurnIds = turns
-        .where((turn) => turn['group_id'] == groupId)
-        .map((turn) => turn['id'])
-        .toSet();
-    await _writeTurnSteps(
-      turnSteps
-          .where((step) => !deletedTurnIds.contains(step['turn_id']))
-          .toList(),
-    );
-  }
+  Future<void> deleteGroup(int groupId) => _writes.run(() async {
+        final events = await _readEvents();
+        final groups = await _readGroups();
+        final messages = await _readMessages();
+        final attachments = await _readMessageAttachments();
+        final snapshots = await _readSessionContextSnapshots();
+        final runtimeMarkers = await _readSessionRuntimeMarkers();
+        final artifacts = await _readArtifactRegistry();
+        final turns = await _readTurns();
+        final turnSteps = await _readTurnSteps();
+        await _writeEvents(
+            events.where((event) => event['group_id'] != groupId).toList());
+        await _writeGroups(
+            groups.where((group) => group['id'] != groupId).toList());
+        await _writeMessages(messages
+            .where((message) => message['group_id'] != groupId)
+            .toList());
+        final deletedMessageIds = messages
+            .where((message) => message['group_id'] == groupId)
+            .map((message) => message['id'])
+            .toSet();
+        await _writeMessageAttachments(
+          attachments
+              .where(
+                (attachment) =>
+                    !deletedMessageIds.contains(attachment['message_id']),
+              )
+              .toList(),
+        );
+        await _writeSessionContextSnapshots(
+          snapshots
+              .where((snapshot) => snapshot['group_id'] != groupId)
+              .toList(),
+        );
+        await _writeSessionRuntimeMarkers(
+          runtimeMarkers
+              .where((marker) => marker['group_id'] != groupId)
+              .toList(),
+        );
+        await _writeArtifactRegistry(
+          artifacts
+              .where((artifact) => artifact['group_id'] != groupId)
+              .toList(),
+        );
+        await _writeTurns(
+            turns.where((turn) => turn['group_id'] != groupId).toList());
+        final deletedTurnIds = turns
+            .where((turn) => turn['group_id'] == groupId)
+            .map((turn) => turn['id'])
+            .toSet();
+        await _writeTurnSteps(
+          turnSteps
+              .where((step) => !deletedTurnIds.contains(step['turn_id']))
+              .toList(),
+        );
+      });
 
   @override
-  Future<int> insertTurn(ChatTurn turn) async {
-    final turns = await _readTurns();
-    final nextId = _nextId(turns.map((item) => item['id'] as int?));
-    turns.add({
-      ...turn.toMap(),
-      'id': nextId,
-    });
-    await _writeTurns(turns);
-    return nextId;
-  }
+  Future<int> insertTurn(ChatTurn turn) => _writes.run(() async {
+        final turns = await _readTurns();
+        final nextId = _nextId(turns.map((item) => item['id'] as int?));
+        turns.add({
+          ...turn.toMap(),
+          'id': nextId,
+        });
+        await _writeTurns(turns);
+        return nextId;
+      });
 
   @override
   Future<ChatTurn?> getTurn(int id) async {
@@ -222,28 +239,28 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateTurn(ChatTurn turn) async {
-    final turns = await _readTurns();
-    final updated = turns.map((storedTurn) {
-      if (storedTurn['id'] != turn.id) {
-        return storedTurn;
-      }
-      return turn.toMap();
-    }).toList();
-    await _writeTurns(updated);
-  }
+  Future<void> updateTurn(ChatTurn turn) => _writes.run(() async {
+        final turns = await _readTurns();
+        final updated = turns.map((storedTurn) {
+          if (storedTurn['id'] != turn.id) {
+            return storedTurn;
+          }
+          return turn.toMap();
+        }).toList();
+        await _writeTurns(updated);
+      });
 
   @override
-  Future<int> insertTurnStep(ChatTurnStep step) async {
-    final steps = await _readTurnSteps();
-    final nextId = _nextId(steps.map((item) => item['id'] as int?));
-    steps.add({
-      ...step.toMap(),
-      'id': nextId,
-    });
-    await _writeTurnSteps(steps);
-    return nextId;
-  }
+  Future<int> insertTurnStep(ChatTurnStep step) => _writes.run(() async {
+        final steps = await _readTurnSteps();
+        final nextId = _nextId(steps.map((item) => item['id'] as int?));
+        steps.add({
+          ...step.toMap(),
+          'id': nextId,
+        });
+        await _writeTurnSteps(steps);
+        return nextId;
+      });
 
   @override
   Future<ChatTurnStep?> getTurnStep(int id) async {
@@ -265,45 +282,46 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateTurnStep(ChatTurnStep step) async {
-    final steps = await _readTurnSteps();
-    final updated = steps.map((storedStep) {
-      if (storedStep['id'] != step.id) {
-        return storedStep;
-      }
-      return step.toMap();
-    }).toList();
-    await _writeTurnSteps(updated);
-  }
+  Future<void> updateTurnStep(ChatTurnStep step) => _writes.run(() async {
+        final steps = await _readTurnSteps();
+        final updated = steps.map((storedStep) {
+          if (storedStep['id'] != step.id) {
+            return storedStep;
+          }
+          return step.toMap();
+        }).toList();
+        await _writeTurnSteps(updated);
+      });
 
   @override
-  Future<int> insertOrReplaceArtifactRecord(ArtifactRecord record) async {
-    final artifacts = await _readArtifactRegistry();
-    final existingIndex = artifacts.indexWhere(
-      (item) =>
-          item['group_id'] == record.groupId &&
-          item['artifact_id'] == record.artifactId,
-    );
-    if (existingIndex != -1) {
-      final existingId = artifacts[existingIndex]['id'] as int?;
-      artifacts[existingIndex] = {
-        ...record.toMap(),
-        'id': existingId ??
-            record.id ??
-            _nextId(artifacts.map((e) => e['id'] as int?)),
-      };
-      await _writeArtifactRegistry(artifacts);
-      return artifacts[existingIndex]['id'] as int;
-    }
+  Future<int> insertOrReplaceArtifactRecord(ArtifactRecord record) =>
+      _writes.run(() async {
+        final artifacts = await _readArtifactRegistry();
+        final existingIndex = artifacts.indexWhere(
+          (item) =>
+              item['group_id'] == record.groupId &&
+              item['artifact_id'] == record.artifactId,
+        );
+        if (existingIndex != -1) {
+          final existingId = artifacts[existingIndex]['id'] as int?;
+          artifacts[existingIndex] = {
+            ...record.toMap(),
+            'id': existingId ??
+                record.id ??
+                _nextId(artifacts.map((e) => e['id'] as int?)),
+          };
+          await _writeArtifactRegistry(artifacts);
+          return artifacts[existingIndex]['id'] as int;
+        }
 
-    final nextId = _nextId(artifacts.map((item) => item['id'] as int?));
-    artifacts.add({
-      ...record.toMap(),
-      'id': nextId,
-    });
-    await _writeArtifactRegistry(artifacts);
-    return nextId;
-  }
+        final nextId = _nextId(artifacts.map((item) => item['id'] as int?));
+        artifacts.add({
+          ...record.toMap(),
+          'id': nextId,
+        });
+        await _writeArtifactRegistry(artifacts);
+        return nextId;
+      });
 
   @override
   Future<ArtifactRecord?> getArtifactRecord({
@@ -354,28 +372,29 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateArtifactRecord(ArtifactRecord record) async {
-    final artifacts = await _readArtifactRegistry();
-    final updated = artifacts.map((storedArtifact) {
-      if (storedArtifact['id'] != record.id) {
-        return storedArtifact;
-      }
-      return record.toMap();
-    }).toList();
-    await _writeArtifactRegistry(updated);
-  }
+  Future<void> updateArtifactRecord(ArtifactRecord record) =>
+      _writes.run(() async {
+        final artifacts = await _readArtifactRegistry();
+        final updated = artifacts.map((storedArtifact) {
+          if (storedArtifact['id'] != record.id) {
+            return storedArtifact;
+          }
+          return record.toMap();
+        }).toList();
+        await _writeArtifactRegistry(updated);
+      });
 
   @override
-  Future<int> insertEvent(ChatEvent event) async {
-    final events = await _readEvents();
-    final nextId = _nextId(events.map((item) => item['id'] as int?));
-    events.add({
-      ...event.toMap(),
-      'id': nextId,
-    });
-    await _writeEvents(events);
-    return nextId;
-  }
+  Future<int> insertEvent(ChatEvent event) => _writes.run(() async {
+        final events = await _readEvents();
+        final nextId = _nextId(events.map((item) => item['id'] as int?));
+        events.add({
+          ...event.toMap(),
+          'id': nextId,
+        });
+        await _writeEvents(events);
+        return nextId;
+      });
 
   @override
   Future<int> getNextEventSequence(int turnId) async {
@@ -423,17 +442,17 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<int> insertSessionContextSnapshot(
-      SessionContextSnapshot snapshot) async {
-    final snapshots = await _readSessionContextSnapshots();
-    final nextId = _nextId(snapshots.map((item) => item['id'] as int?));
-    snapshots.add({
-      ...snapshot.toMap(),
-      'id': nextId,
-    });
-    await _writeSessionContextSnapshots(snapshots);
-    return nextId;
-  }
+  Future<int> insertSessionContextSnapshot(SessionContextSnapshot snapshot) =>
+      _writes.run(() async {
+        final snapshots = await _readSessionContextSnapshots();
+        final nextId = _nextId(snapshots.map((item) => item['id'] as int?));
+        snapshots.add({
+          ...snapshot.toMap(),
+          'id': nextId,
+        });
+        await _writeSessionContextSnapshots(snapshots);
+        return nextId;
+      });
 
   @override
   Future<SessionContextSnapshot?> getLatestSessionContextSnapshotByGroup(
@@ -456,34 +475,39 @@ class WebChatStorage implements ChatStorage {
   @override
   Future<void> updateSessionContextSnapshot(
     SessionContextSnapshot snapshot,
-  ) async {
-    final snapshots = await _readSessionContextSnapshots();
-    final updated = snapshots.map((storedSnapshot) {
-      if (storedSnapshot['id'] != snapshot.id) {
-        return storedSnapshot;
-      }
-      return snapshot.toMap();
-    }).toList();
-    await _writeSessionContextSnapshots(updated);
-  }
+  ) =>
+      _writes.run(() async {
+        final snapshots = await _readSessionContextSnapshots();
+        final updated = snapshots.map((storedSnapshot) {
+          if (storedSnapshot['id'] != snapshot.id) {
+            return storedSnapshot;
+          }
+          return snapshot.toMap();
+        }).toList();
+        await _writeSessionContextSnapshots(updated);
+      });
 
   @override
-  Future<int> insertSessionRuntimeConfig(SessionRuntimeConfig config) async {
-    final configs = await _readSessionRuntimeConfigs();
-    final nextId = _nextId(configs.map((item) => item['id'] as int?));
-    configs.removeWhere((item) => item['group_id'] == config.groupId);
-    configs.add({
-      ...config.toMap(),
-      'id': nextId,
-    });
-    await _writeSessionRuntimeConfigs(configs);
-    return nextId;
-  }
+  Future<int> insertSessionRuntimeConfig(SessionRuntimeConfig config) =>
+      _writes.run(() async {
+        final configs = await _readSessionRuntimeConfigs();
+        final nextId = _nextId(configs.map((item) => item['id'] as int?));
+        configs.removeWhere((item) => item['group_id'] == config.groupId);
+        configs.add({
+          ...config.toMap(),
+          'id': nextId,
+        });
+        await _writeSessionRuntimeConfigs(configs);
+        return nextId;
+      });
 
   @override
-  Future<SessionRuntimeConfig?> getSessionRuntimeConfigByGroup(int groupId) async {
+  Future<SessionRuntimeConfig?> getSessionRuntimeConfigByGroup(
+      int groupId) async {
     final configs = await _readSessionRuntimeConfigs();
-    final matches = configs.where((item) => item['group_id'] == groupId).toList()
+    final matches = configs
+        .where((item) => item['group_id'] == groupId)
+        .toList()
       ..sort(
         (left, right) =>
             (right['updated_at'] as int).compareTo(left['updated_at'] as int),
@@ -495,28 +519,30 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateSessionRuntimeConfig(SessionRuntimeConfig config) async {
-    final configs = await _readSessionRuntimeConfigs();
-    final updated = configs.map((storedConfig) {
-      if (storedConfig['id'] != config.id) {
-        return storedConfig;
-      }
-      return config.toMap();
-    }).toList();
-    await _writeSessionRuntimeConfigs(updated);
-  }
+  Future<void> updateSessionRuntimeConfig(SessionRuntimeConfig config) =>
+      _writes.run(() async {
+        final configs = await _readSessionRuntimeConfigs();
+        final updated = configs.map((storedConfig) {
+          if (storedConfig['id'] != config.id) {
+            return storedConfig;
+          }
+          return config.toMap();
+        }).toList();
+        await _writeSessionRuntimeConfigs(updated);
+      });
 
   @override
-  Future<int> insertSessionRuntimeMarker(SessionRuntimeMarker marker) async {
-    final markers = await _readSessionRuntimeMarkers();
-    final nextId = _nextId(markers.map((item) => item['id'] as int?));
-    markers.add({
-      ...marker.toMap(),
-      'id': nextId,
-    });
-    await _writeSessionRuntimeMarkers(markers);
-    return nextId;
-  }
+  Future<int> insertSessionRuntimeMarker(SessionRuntimeMarker marker) =>
+      _writes.run(() async {
+        final markers = await _readSessionRuntimeMarkers();
+        final nextId = _nextId(markers.map((item) => item['id'] as int?));
+        markers.add({
+          ...marker.toMap(),
+          'id': nextId,
+        });
+        await _writeSessionRuntimeMarkers(markers);
+        return nextId;
+      });
 
   @override
   Future<SessionRuntimeMarker?> getLatestSessionRuntimeMarkerByGroup(
@@ -537,45 +563,49 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> updateSessionRuntimeMarker(SessionRuntimeMarker marker) async {
-    final markers = await _readSessionRuntimeMarkers();
-    final updated = markers.map((storedMarker) {
-      if (storedMarker['id'] != marker.id) {
-        return storedMarker;
-      }
-      return marker.toMap();
-    }).toList();
-    await _writeSessionRuntimeMarkers(updated);
-  }
+  Future<void> updateSessionRuntimeMarker(SessionRuntimeMarker marker) =>
+      _writes.run(() async {
+        final markers = await _readSessionRuntimeMarkers();
+        final updated = markers.map((storedMarker) {
+          if (storedMarker['id'] != marker.id) {
+            return storedMarker;
+          }
+          return marker.toMap();
+        }).toList();
+        await _writeSessionRuntimeMarkers(updated);
+      });
 
   @override
-  Future<int> insertMessage(ChatMessage message, int groupId) async {
-    final messages = await _readMessages();
-    final nextId = _nextId(messages.map((item) => item['id'] as int?));
-    final storedMessage = {
-      ...message.copyWith(id: nextId).toMap(),
-      'group_id': groupId,
-    };
-    messages.add(storedMessage);
-    await _writeMessages(messages);
-    await updateGroupLastMessageTime(groupId);
-    return nextId;
-  }
+  Future<int> insertMessage(ChatMessage message, int groupId) =>
+      _writes.run(() async {
+        final messages = await _readMessages();
+        final nextId = _nextId(messages.map((item) => item['id'] as int?));
+        final storedMessage = {
+          ...message.copyWith(id: nextId).toMap(),
+          'group_id': groupId,
+        };
+        messages.add(storedMessage);
+        await _writeMessages(messages);
+        await _updateGroupLastMessageTime(groupId);
+        return nextId;
+      });
 
   @override
   Future<void> insertMessageAttachments(
     int messageId,
     List<ChatAttachment> attachments,
-  ) async {
-    final stored = await _readMessageAttachments();
-    stored.removeWhere((attachment) => attachment['message_id'] == messageId);
-    stored.addAll(
-      attachments.map(
-        (attachment) => attachment.toDatabaseMap(messageId: messageId),
-      ),
-    );
-    await _writeMessageAttachments(stored);
-  }
+  ) =>
+      _writes.run(() async {
+        final stored = await _readMessageAttachments();
+        stored
+            .removeWhere((attachment) => attachment['message_id'] == messageId);
+        stored.addAll(
+          attachments.map(
+            (attachment) => attachment.toDatabaseMap(messageId: messageId),
+          ),
+        );
+        await _writeMessageAttachments(stored);
+      });
 
   @override
   Future<List<ChatAttachment>> getMessageAttachments(int messageId) async {
@@ -644,40 +674,44 @@ class WebChatStorage implements ChatStorage {
   }
 
   @override
-  Future<void> deleteGroupMessages(int groupId) async {
-    final messages = await _readMessages();
-    final deletedIds = messages
-        .where((message) => message['group_id'] == groupId)
-        .map((message) => message['id'])
-        .toSet();
-    await _writeMessages(
-        messages.where((message) => message['group_id'] != groupId).toList());
-    final attachments = await _readMessageAttachments();
-    await _writeMessageAttachments(
-      attachments
-          .where((attachment) => !deletedIds.contains(attachment['message_id']))
-          .toList(),
-    );
-  }
+  Future<void> deleteGroupMessages(int groupId) => _writes.run(() async {
+        final messages = await _readMessages();
+        final deletedIds = messages
+            .where((message) => message['group_id'] == groupId)
+            .map((message) => message['id'])
+            .toSet();
+        await _writeMessages(messages
+            .where((message) => message['group_id'] != groupId)
+            .toList());
+        final attachments = await _readMessageAttachments();
+        await _writeMessageAttachments(
+          attachments
+              .where((attachment) =>
+                  !deletedIds.contains(attachment['message_id']))
+              .toList(),
+        );
+      });
 
   @override
-  Future<void> updateMessage(int id, String newText) async {
-    await _updateMessageRecord(id, {'text': newText});
-  }
+  Future<void> updateMessage(int id, String newText) => _writes.run(() async {
+        await _updateMessageRecord(id, {'text': newText});
+      });
 
   @override
-  Future<void> updateMessageReasoning(int id, String? reasoningContent) async {
-    await _updateMessageRecord(id, {'reasoning_content': reasoningContent});
-  }
+  Future<void> updateMessageReasoning(int id, String? reasoningContent) =>
+      _writes.run(() async {
+        await _updateMessageRecord(id, {'reasoning_content': reasoningContent});
+      });
 
   @override
   Future<bool> testDatabaseConnection() async => true;
 
   @override
-  Future<void> updateMessageStatus(int id, MessageStatus status) async {
-    await _updateMessageRecord(
-        id, {'status': status.toString().split('.').last});
-  }
+  Future<void> updateMessageStatus(int id, MessageStatus status) =>
+      _writes.run(() async {
+        await _updateMessageRecord(
+            id, {'status': status.toString().split('.').last});
+      });
 
   @override
   Future<void> updateStructuredMessage(
@@ -686,21 +720,22 @@ class WebChatStorage implements ChatStorage {
     required MessageStatus status,
     required MessageContentType contentType,
     String? payloadJson,
-  }) async {
-    await _updateMessageRecord(id, {
-      'text': text,
-      'status': status.toString().split('.').last,
-      'content_type': contentType.wireName,
-      'payload_json': payloadJson,
-    });
-  }
+  }) =>
+      _writes.run(() async {
+        await _updateMessageRecord(id, {
+          'text': text,
+          'status': status.toString().split('.').last,
+          'content_type': contentType.wireName,
+          'payload_json': payloadJson,
+        });
+      });
 
   @override
-  Future<void> deleteMessage(int id) async {
-    final messages = await _readMessages();
-    await _writeMessages(
-        messages.where((message) => message['id'] != id).toList());
-  }
+  Future<void> deleteMessage(int id) => _writes.run(() async {
+        final messages = await _readMessages();
+        await _writeMessages(
+            messages.where((message) => message['id'] != id).toList());
+      });
 
   Future<void> _updateMessageRecord(int id, Map<String, dynamic> patch) async {
     final messages = await _readMessages();

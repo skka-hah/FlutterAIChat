@@ -14,6 +14,7 @@ import 'package:ai_chat/pages/test_page.dart';
 import 'package:ai_chat/pages/chat_page.dart';
 import 'package:ai_chat/pages/settings_page.dart';
 import 'package:ai_chat/models/llm/llm_factory.dart';
+import 'package:ai_chat/models/llm/base_llm.dart';
 import 'package:ai_chat/providers/chat_providers.dart';
 import 'package:ai_chat/repositories/app_settings_repository.dart';
 import 'package:ai_chat/repositories/artifact_repository.dart';
@@ -31,7 +32,6 @@ import 'package:ai_chat/services/agent_planner_service.dart';
 import 'package:ai_chat/services/chat_service.dart';
 import 'package:ai_chat/services/chat_trace_recorder.dart';
 import 'package:ai_chat/services/default_tool_adapters.dart';
-import 'package:ai_chat/services/follow_up_dispatch_queue.dart';
 import 'package:ai_chat/services/model_budget_registry.dart';
 import 'package:ai_chat/services/model_capability_resolver.dart';
 import 'package:ai_chat/services/model_capability_sources/anthropic_model_capability_source.dart';
@@ -91,41 +91,37 @@ Future<AppRuntime> _initializeRuntime(ProviderContainer container) async {
   await storage.testDatabaseConnection();
   final chatCompletionsAdapterType =
       await settingsRepository.getChatCompletionsAdapterType();
-  final modelBudgetRegistry = ModelBudgetRegistry();
-  final modelCapabilityResolver = ModelCapabilityResolver(
-    settingsRepository: settingsRepository,
-    budgetRegistry: modelBudgetRegistry,
-    providerSources: [
-      AnthropicModelCapabilitySource(),
-      GeminiModelCapabilitySource(),
-    ],
-    catalogSource: CatalogModelCapabilitySource(),
-  );
-  final llm = LLMFactory.createLLM(
-    LLMType.configurable,
-    settingsRepository: settingsRepository,
-    chatCompletionsAdapterType: chatCompletionsAdapterType,
-    modelCapabilityResolver: modelCapabilityResolver,
-  );
+  ({BaseLLM llm, SessionTokenBudgetService budget}) createModelServices() {
+    final modelBudgetRegistry = ModelBudgetRegistry();
+    final modelCapabilityResolver = ModelCapabilityResolver(
+      settingsRepository: settingsRepository,
+      budgetRegistry: modelBudgetRegistry,
+      providerSources: [
+        AnthropicModelCapabilitySource(),
+        GeminiModelCapabilitySource(),
+      ],
+      catalogSource: CatalogModelCapabilitySource(),
+    );
+    final llm = LLMFactory.createLLM(
+      LLMType.configurable,
+      settingsRepository: settingsRepository,
+      chatCompletionsAdapterType: chatCompletionsAdapterType,
+      modelCapabilityResolver: modelCapabilityResolver,
+    );
+    return (
+      llm: llm,
+      budget: SessionTokenBudgetService(
+        modelBudgetRegistry: modelBudgetRegistry,
+        modelCapabilityResolver: modelCapabilityResolver,
+      )
+    );
+  }
+
   final hostServices = await buildRuntimeHostServices(
     isWeb: kIsWeb,
     storage: storage,
     settingsRepository: settingsRepository,
   );
-  final artifactRepository = ArtifactRepository(storage);
-  final createArtifactGuidelineHandler = CreateArtifactGuidelineToolHandler(
-    activeThemeSpecProvider: () {
-      final storedThemeId = settingsRepository.getThemeIdSync();
-      return AppThemeSpec.resolveById(storedThemeId ?? '') ??
-          AppThemeSpec.claude();
-    },
-  );
-  final createArtifactHandler = hostServices.artifactFileStorageService == null
-      ? null
-      : CreateArtifactToolHandler(
-          artifactRepository: artifactRepository,
-          fileStorageService: hostServices.artifactFileStorageService!,
-        );
   final chatAttachmentPickerService = ImagePickerChatAttachmentPickerService();
   final runtimeAwareWorkspaceService = WorkspaceRuntimeService(
     storage: storage,
@@ -138,171 +134,95 @@ Future<AppRuntime> _initializeRuntime(ProviderContainer container) async {
       container.read(groupsProvider.notifier).setGroups(groups);
     },
   );
-  final tavilyWebSearcher = buildTavilyWebSearcher();
-  final toolExecutor = ToolExecutor(
-    chatStorage: storage,
-    webSearcher: ({
-      required query,
-      maxResults,
-    }) async {
-      final config = await settingsRepository.getLlmConfig();
-      final provider =
-          (config.additionalConfig['web_search.provider'] as String?)
-                  ?.trim() ??
-              'tavily';
-      if (provider != 'tavily') {
-        return ToolResult(
-          toolName: 'web_search',
-          status: ToolExecutionStatus.failure,
-          summary: '联网搜索失败',
-          data: {
-            'query': query,
-            'provider': provider,
-            'reason': 'unsupported_provider',
-          },
-          errorMessage: 'unsupported_provider',
-        );
-      }
-      return tavilyWebSearcher(
-        query: query,
-        maxResults: maxResults,
-        apiKey: config.additionalConfig['web_search.tavily_api_key'] as String?,
-        baseUrl: config.additionalConfig['web_search.tavily_base_url'] as String?,
-      );
-    },
-    webpageFetcher: buildDefaultWebpageFetcher(sideModelLlm: llm),
-    reminderCreator: buildDefaultReminderCreator(),
-    calendarEventCreator: buildDefaultCalendarEventCreator(),
-    resultSharer: buildDefaultResultSharer(),
-    imageGenerator: buildOpenAIImageGenerator(),
-  );
-  final runtimeRegistry = buildDefaultToolRuntimeRegistry(
-    toolExecutor: toolExecutor,
-    skillRuntimeService: hostServices.skillRuntimeService,
-    appSettingsRepository: settingsRepository,
-    createArtifactGuidelineHandler: createArtifactGuidelineHandler,
-    createArtifactHandler: createArtifactHandler,
-  );
-  final toolPolicyService = ToolPolicyService(
-    repository: settingsRepository,
-  );
   final traceRecorder = ChatTraceRecorder();
-  final followUpDispatchQueue = FollowUpDispatchQueue();
   final turnRepository = ChatTurnRepository(storage);
   final checkpoints = await turnRepository.interruptAbandonedTurns();
   final runManager = container.read(agentRunManagerProvider);
   for (final turn in checkpoints) {
     runManager.restoreSuspendedTurn(groupId: turn.groupId, turnId: turn.id!);
     if (turn.status == ChatTurnStatus.awaitingToolConfirmation) {
-      container.read(chatSendStateForGroupProvider(turn.groupId).notifier)
+      container
+          .read(chatSendStateForGroupProvider(turn.groupId).notifier)
           .setPhase(ChatSendPhase.awaitingConfirmation);
     }
   }
   final turnStepRepository = ChatTurnStepRepository(storage);
   final eventRepository = ChatEventRepository(storage);
-  final sessionContextService = SessionContextService(
-    chatTurnRepository: turnRepository,
-    chatEventRepository: eventRepository,
-    snapshotRepository: SessionContextSnapshotRepository(storage),
-    chatStorage: storage,
-    contextProjector: SessionContextProjector(),
-    tokenBudgetService: SessionTokenBudgetService(
-      modelBudgetRegistry: modelBudgetRegistry,
-      modelCapabilityResolver: modelCapabilityResolver,
-    ),
-    summaryService: SessionSummaryService(chatService: ChatService(
-      llm: llm,
-      toolCallService: ToolCallService(
-        runtimeRegistry: runtimeRegistry,
-        traceRecorder: traceRecorder,
-        toolExecutor: toolExecutor,
-        toolPolicyService: toolPolicyService,
-        hostAdapters: ToolHostAdapters(
-          fileTools: hostServices.fileToolAdapters,
-          workspace: WorkspaceToolHostAdapters(
-            resolveWorkspaceForGroup:
-                runtimeAwareWorkspaceService.resolveWorkspaceForGroup,
-            ensureWorkspaceForLongLivedOutput:
-                runtimeAwareWorkspaceService.ensureWorkspaceForLongLivedOutput,
-          ),
-        ),
-      ),
-    )),
-    chatService: ChatService(
-      llm: llm,
-      toolCallService: ToolCallService(
-        runtimeRegistry: runtimeRegistry,
-        traceRecorder: traceRecorder,
-        toolExecutor: toolExecutor,
-        toolPolicyService: toolPolicyService,
-        hostAdapters: ToolHostAdapters(
-          fileTools: hostServices.fileToolAdapters,
-          workspace: WorkspaceToolHostAdapters(
-            resolveWorkspaceForGroup:
-                runtimeAwareWorkspaceService.resolveWorkspaceForGroup,
-            ensureWorkspaceForLongLivedOutput:
-                runtimeAwareWorkspaceService.ensureWorkspaceForLongLivedOutput,
-          ),
-        ),
-      ),
-    ),
-    settingsRepository: settingsRepository,
-  );
-  final chatService = ChatService(
-    llm: llm,
-    toolCallService: ToolCallService(
-      runtimeRegistry: runtimeRegistry,
-      traceRecorder: traceRecorder,
-      toolExecutor: toolExecutor,
-      toolPolicyService: toolPolicyService,
-      hostAdapters: ToolHostAdapters(
-        fileTools: hostServices.fileToolAdapters,
-        workspace: WorkspaceToolHostAdapters(
-          resolveWorkspaceForGroup:
-              runtimeAwareWorkspaceService.resolveWorkspaceForGroup,
-          ensureWorkspaceForLongLivedOutput:
-              runtimeAwareWorkspaceService.ensureWorkspaceForLongLivedOutput,
-        ),
-      ),
-    ),
-  );
-  final turnHarness = TurnHarness(
-    plannerService: AgentPlannerService(
-      llm: llm,
-      toolPolicyService: toolPolicyService,
-      availableTools: runtimeRegistry.getDefinitionsForPlatform(
-        _resolveRuntimePlatform(),
-      ),
-      onPlannerRuntimeStream: (entries) {
-        final groupId = entries.runtimeMetadata?['streamGroupId'] as int?;
-        final runId = entries.runtimeMetadata?['streamRunId'] as int?;
-        if (groupId == null || runId == null) return;
-        unawaited(
-          container.read(turnProjectionDispatcherProvider(groupId)).dispatchPreviewEvent(
-                entries, runId: runId,
-              ),
+
+  TurnHarness createTurnHarness(int groupId) {
+    final (:llm, :budget) = createModelServices();
+    final artifactRepository = ArtifactRepository(storage);
+    final createArtifactGuidelineHandler = CreateArtifactGuidelineToolHandler(
+      activeThemeSpecProvider: () {
+        final storedThemeId = settingsRepository.getThemeIdSync();
+        return AppThemeSpec.resolveById(storedThemeId ?? '') ??
+            AppThemeSpec.claude();
+      },
+    );
+    final createArtifactHandler =
+        hostServices.artifactFileStorageService == null
+            ? null
+            : CreateArtifactToolHandler(
+                artifactRepository: artifactRepository,
+                fileStorageService: hostServices.artifactFileStorageService!,
+              );
+    final tavilyWebSearcher = buildTavilyWebSearcher();
+    final toolExecutor = ToolExecutor(
+      chatStorage: storage,
+      webSearcher: ({
+        required query,
+        maxResults,
+      }) async {
+        final config = await settingsRepository.getLlmConfig();
+        final provider =
+            (config.additionalConfig['web_search.provider'] as String?)
+                    ?.trim() ??
+                'tavily';
+        if (provider != 'tavily') {
+          return ToolResult(
+            toolName: 'web_search',
+            status: ToolExecutionStatus.failure,
+            summary: '联网搜索失败',
+            data: {
+              'query': query,
+              'provider': provider,
+              'reason': 'unsupported_provider',
+            },
+            errorMessage: 'unsupported_provider',
+          );
+        }
+        return tavilyWebSearcher(
+          query: query,
+          maxResults: maxResults,
+          apiKey:
+              config.additionalConfig['web_search.tavily_api_key'] as String?,
+          baseUrl:
+              config.additionalConfig['web_search.tavily_base_url'] as String?,
         );
       },
-      onPlannerRequestTrace: (event) {
-        final coordinator =
-            container.read(chatSendCoordinatorProvider) as DefaultChatSendCoordinator;
-        coordinator.recordPlannerRequestTrace(event);
-      },
-    ),
-    turnRepository: turnRepository,
-    turnStepRepository: turnStepRepository,
-    eventRepository: eventRepository,
-    transcriptBuilderService: TranscriptBuilderService(
-      eventRepository: eventRepository,
-    ),
-    turnVerifier: TurnVerifier(),
-    toolCallService: ToolCallService(
+      webpageFetcher: buildDefaultWebpageFetcher(sideModelLlm: llm),
+      reminderCreator: buildDefaultReminderCreator(),
+      calendarEventCreator: buildDefaultCalendarEventCreator(),
+      resultSharer: buildDefaultResultSharer(),
+      imageGenerator: buildOpenAIImageGenerator(),
+    );
+    final runtimeRegistry = buildDefaultToolRuntimeRegistry(
+      toolExecutor: toolExecutor,
+      skillRuntimeService: hostServices.skillRuntimeService,
+      appSettingsRepository: settingsRepository,
+      createArtifactGuidelineHandler: createArtifactGuidelineHandler,
+      createArtifactHandler: createArtifactHandler,
+    );
+    final toolPolicyService = ToolPolicyService(
+      repository: settingsRepository,
+    );
+    final toolCallService = ToolCallService(
       runtimeRegistry: runtimeRegistry,
       traceRecorder: traceRecorder,
       toolExecutor: toolExecutor,
       toolPolicyService: toolPolicyService,
       hostAdapters: ToolHostAdapters(
-        fileTools: hostServices.fileToolAdapters,
+        fileTools: container.read(fileToolHostAdaptersForGroupProvider(groupId)),
         workspace: WorkspaceToolHostAdapters(
           resolveWorkspaceForGroup:
               runtimeAwareWorkspaceService.resolveWorkspaceForGroup,
@@ -310,21 +230,69 @@ Future<AppRuntime> _initializeRuntime(ProviderContainer container) async {
               runtimeAwareWorkspaceService.ensureWorkspaceForLongLivedOutput,
         ),
       ),
-    ),
-    chatStorage: storage,
-    sessionContextService: sessionContextService,
-    followUpDispatchQueue: followUpDispatchQueue,
-  );
+    );
+    final runChatService = ChatService(llm: llm);
+    final sessionContextService = SessionContextService(
+      chatTurnRepository: turnRepository,
+      chatEventRepository: eventRepository,
+      snapshotRepository: SessionContextSnapshotRepository(storage),
+      chatStorage: storage,
+      contextProjector: SessionContextProjector(),
+      tokenBudgetService: budget,
+      summaryService: SessionSummaryService(chatService: runChatService),
+      chatService: runChatService,
+      settingsRepository: settingsRepository,
+    );
+    return TurnHarness(
+      plannerService: AgentPlannerService(
+        llm: llm,
+        toolPolicyService: toolPolicyService,
+        availableTools: runtimeRegistry.getDefinitionsForPlatform(
+          _resolveRuntimePlatform(),
+        ),
+        onPlannerRuntimeStream: (entries) {
+          final groupId = entries.runtimeMetadata?['streamGroupId'] as int?;
+          final runId = entries.runtimeMetadata?['streamRunId'] as int?;
+          if (groupId == null || runId == null) return;
+          unawaited(
+            container
+                .read(turnProjectionDispatcherProvider(groupId))
+                .dispatchPreviewEvent(
+                  entries,
+                  runId: runId,
+                ),
+          );
+        },
+        onPlannerRequestTrace: (event) {
+          final coordinator = container.read(chatSendCoordinatorProvider)
+              as DefaultChatSendCoordinator;
+          coordinator.recordPlannerRequestTrace(event);
+        },
+      ),
+      turnRepository: turnRepository,
+      turnStepRepository: turnStepRepository,
+      eventRepository: eventRepository,
+      transcriptBuilderService: TranscriptBuilderService(
+        eventRepository: eventRepository,
+      ),
+      turnVerifier: TurnVerifier(),
+      toolCallService: toolCallService,
+      chatStorage: storage,
+      sessionContextService: sessionContextService,
+      followUpDispatchQueue:
+          container.read(followUpDispatchQueueProvider(groupId)),
+    );
+  }
 
   return AppRuntime(
     sharedPreferences: preferences,
     appSettingsRepository: settingsRepository,
     chatStorage: storage,
-    followUpDispatchQueue: followUpDispatchQueue,
+    chatEventRepository: eventRepository,
     chatAttachmentPickerService: chatAttachmentPickerService,
     chatAttachmentStorageService: hostServices.chatAttachmentStorageService,
     artifactFileStorageService: hostServices.artifactFileStorageService,
-    fileToolRootService: hostServices.fileToolAdapters?.rootService,
+    fileToolHostAdapters: hostServices.fileToolAdapters,
     skillStorageService: hostServices.skillStorageService,
     gitHubSkillSourceResolver: const GitHubSkillSourceResolver(),
     gitHubSkillFetcher: GitHubSkillFetcher(),
@@ -332,8 +300,8 @@ Future<AppRuntime> _initializeRuntime(ProviderContainer container) async {
     skillRuntimeService: hostServices.skillRuntimeService,
     skillInstallerService: hostServices.skillInstallerService,
     traceRecorder: traceRecorder,
-    chatService: chatService,
-    turnHarness: turnHarness,
+    chatService: ChatService(llm: createModelServices().llm),
+    createTurnHarness: createTurnHarness,
   );
 }
 
@@ -379,11 +347,8 @@ String _resolveInitialRoute(Map<String, WidgetBuilder> routes) {
   );
 }
 
-String _resolveInitialRouteName(
-  String? routeName,
-  Iterable<String> validRoutes,
-  {Uri? currentUri}
-) {
+String _resolveInitialRouteName(String? routeName, Iterable<String> validRoutes,
+    {Uri? currentUri}) {
   final normalized = routeName?.trim();
   if (normalized != null &&
       normalized.isNotEmpty &&

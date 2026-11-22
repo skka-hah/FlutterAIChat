@@ -193,6 +193,7 @@ fvm flutter build ios
 
 - `TurnHarness` is the only main entry for turn-loop execution.
 - `AgentRunManager` owns app-wide execution slots and per-group main-turn reservations. Bind send, resume, preview callbacks and stop actions to the owning group and execution. Reserve the group before asynchronous work and release the slot when an interaction suspends the turn.
+- Build a fresh `TurnHarness` and planner/tool execution graph for each execution attempt. Keep follow-up inputs, file-read history, and automatic summary timers scoped to their conversation. Coordinate writes at the shared storage or file resource.
 - `planNextDecision()` remains the only execution entry for planner/tool loops.
 - `ToolDefinition.descriptionForModel` is the only planner-facing tool description source; new tools must provide `descriptionForModel` and structured `argumentSchema`.
 - Do not reintroduce hard-coded planner routing, keyword-trigger tool rules, prompt-only safety patches, or legacy JSON planner compatibility.

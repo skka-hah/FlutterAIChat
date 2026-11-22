@@ -121,7 +121,17 @@ class ReadToolHandler extends ToolHandler {
       );
     }
 
+    final guard = fileTools.sessionGuard;
+    final version = guard.snapshotForStat(await file.stat());
     final bytes = await file.readAsBytes();
+    if (version != guard.snapshotForStat(await file.stat())) {
+      return const ToolResult(
+        toolName: 'Read',
+        status: ToolExecutionStatus.failure,
+        summary: 'Read failed: file changed during read',
+        errorMessage: 'stale_file_version',
+      );
+    }
     if (_looksBinary(bytes)) {
       return const ToolResult(
         toolName: 'Read',
@@ -160,8 +170,7 @@ class ReadToolHandler extends ToolHandler {
       truncated: budgetResult.truncated || endIndex < lines.length,
     );
 
-    final version = fileTools.sessionGuard.snapshotForStat(await file.stat());
-    fileTools.sessionGuard.markRead(
+    guard.markRead(
       filePath: resolution.agentPath!,
       version: version,
     );

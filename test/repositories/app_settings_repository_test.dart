@@ -12,6 +12,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('concurrent trust changes preserve both tools', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final a = AppSettingsRepository(preferences);
+    final b = AppSettingsRepository(preferences);
+    await Future.wait(
+        [a.addTrustedToolName('Read'), b.addTrustedToolName('Write')]);
+    expect(await a.getTrustedToolNames(), {'Read', 'Write'});
+  });
+
   group('AppSettingsRepository provider-first settings', () {
     test('stores and retrieves resolved model capability cache entries',
         () async {
@@ -371,7 +381,8 @@ void main() {
       expect(config.languageHints, const ['zh', 'en']);
     });
 
-    test('runtime image capability override is returned when present', () async {
+    test('runtime image capability override is returned when present',
+        () async {
       SharedPreferences.setMockInitialValues({});
       final preferences = await SharedPreferences.getInstance();
       final repository = AppSettingsRepository(

@@ -41,7 +41,9 @@ class TurnProjectionDispatcher {
         key: 'streamTurnId',
       );
       if (traceId != null && turnId != null) {
-        _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
+        _ref
+            .read(streamingTraceRecorderForGroupProvider(_groupId).notifier)
+            .recordStage(
           traceId: traceId,
           turnId: turnId,
           stage: StreamingTraceStage.streamEventReceived,
@@ -75,7 +77,9 @@ class TurnProjectionDispatcher {
         // Disposal-time cleanup in `AgentEventProcessor.dispose()` is kept as
         // a safety net for end-of-turn.
         if (finalizedTraceId.isNotEmpty) {
-          _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
+          _ref
+              .read(streamingTraceRecorderForGroupProvider(_groupId).notifier)
+              .recordStage(
             traceId: finalizedTraceId,
             turnId: event.turnId.toString(),
             stage: StreamingTraceStage.finalTakeover,
@@ -85,7 +89,9 @@ class TurnProjectionDispatcher {
               'previewText': event.content ?? '',
             },
           );
-          _ref.read(streamingTraceRecorderProvider.notifier).markCompleted(
+          _ref
+              .read(streamingTraceRecorderForGroupProvider(_groupId).notifier)
+              .markCompleted(
                 traceId: finalizedTraceId,
                 takeoverAt: DateTime.now(),
               );
@@ -96,7 +102,8 @@ class TurnProjectionDispatcher {
   }
 
   void _recordTruthStage(ChatEvent event) {
-    final recorder = _ref.read(streamingTraceRecorderProvider.notifier);
+    final recorder =
+        _ref.read(streamingTraceRecorderForGroupProvider(_groupId).notifier);
     final traceId = streamingTraceIdForTurn(event.turnId);
     final timestamp = event.createdAt;
     final payload = event.payloadJson;
@@ -166,12 +173,15 @@ class TurnProjectionDispatcher {
 
   Future<void> clearRuntimePreview({int? turnId}) {
     return _enqueue(() {
-      final snapshot = _ref.read(streamingTraceSnapshotProvider);
+      final snapshot =
+          _ref.read(streamingTraceRecorderForGroupProvider(_groupId));
       if (snapshot != null &&
           (turnId == null ||
               snapshot.traceId == streamingTraceIdForTurn(turnId)) &&
           snapshot.status == StreamingTraceLifecycleStatus.running) {
-        _ref.read(streamingTraceRecorderProvider.notifier).markAborted(
+        _ref
+            .read(streamingTraceRecorderForGroupProvider(_groupId).notifier)
+            .markAborted(
               traceId: snapshot.traceId,
             );
       }

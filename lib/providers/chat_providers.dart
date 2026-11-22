@@ -20,7 +20,12 @@ export 'chat_send_state_providers.dart';
 export 'chat_ui_providers.dart';
 
 final chatSendCoordinatorProvider = Provider<ChatSendCoordinator>((ref) {
-  return DefaultChatSendCoordinator(ref);
+  return DefaultChatSendCoordinator(
+    ref,
+    onTurnCompleted: (groupId) => ref
+        .read(chatSummaryControllerProvider)
+        .scheduleAutoSummary(groupId: groupId),
+  );
 });
 
 final chatSessionCoordinatorProvider = Provider<ChatSessionCoordinator>((ref) {
@@ -28,10 +33,7 @@ final chatSessionCoordinatorProvider = Provider<ChatSessionCoordinator>((ref) {
 });
 
 final chatSummaryControllerProvider = Provider<ChatSummaryController>((ref) {
-  return DefaultChatSummaryController(
-    ref,
-    sessionCoordinator: ref.read(chatSessionCoordinatorProvider),
-  );
+  return DefaultChatSummaryController(ref);
 });
 
 final chatInteractionCoordinatorProvider =

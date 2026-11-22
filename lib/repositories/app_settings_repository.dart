@@ -1,3 +1,5 @@
+import '../utils/serial_operations.dart';
+
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,6 +41,9 @@ class AppSettingsRepository {
   static const String _defaultModelName = 'default-model';
 
   final SharedPreferences _preferences;
+  static final _writesByPreferences = Expando<SerialOperations>();
+  SerialOperations get _writes =>
+      _writesByPreferences[_preferences] ??= SerialOperations();
   final Future<LlmLocalDefaults?> Function()? _localDefaultsLoader;
   Future<LlmLocalDefaults?>? _cachedLocalDefaults;
 
@@ -69,7 +74,9 @@ class AppSettingsRepository {
     await _writeProviders(defaults.providers);
     final defaultProvider = defaults.providers.first;
     final seededModelId = defaults.defaultModelId ??
-        (defaultProvider.models.isEmpty ? null : defaultProvider.models.first.id);
+        (defaultProvider.models.isEmpty
+            ? null
+            : defaultProvider.models.first.id);
     await _writeSelection(
       LlmSelectionState(
         selectedProviderId: defaults.defaultProviderId ?? defaultProvider.id,
@@ -623,23 +630,23 @@ class AppSettingsRepository {
         .toSet();
   }
 
-  Future<void> addTrustedToolName(String toolName) async {
-    final trustedTools = await getTrustedToolNames();
-    trustedTools.add(toolName.trim());
-    await _preferences.setStringList(
-      _trustedToolNamesKey,
-      trustedTools.toList()..sort(),
-    );
-  }
+  Future<void> addTrustedToolName(String toolName) => _writes.run(() async {
+        final trustedTools = await getTrustedToolNames();
+        trustedTools.add(toolName.trim());
+        await _preferences.setStringList(
+          _trustedToolNamesKey,
+          trustedTools.toList()..sort(),
+        );
+      });
 
-  Future<void> removeTrustedToolName(String toolName) async {
-    final trustedTools = await getTrustedToolNames();
-    trustedTools.remove(toolName.trim());
-    await _preferences.setStringList(
-      _trustedToolNamesKey,
-      trustedTools.toList()..sort(),
-    );
-  }
+  Future<void> removeTrustedToolName(String toolName) => _writes.run(() async {
+        final trustedTools = await getTrustedToolNames();
+        trustedTools.remove(toolName.trim());
+        await _preferences.setStringList(
+          _trustedToolNamesKey,
+          trustedTools.toList()..sort(),
+        );
+      });
 
   Future<Set<String>> getBlockedToolNames() async {
     final values = _preferences.getStringList(_blockedToolNamesKey) ?? const [];
@@ -649,23 +656,23 @@ class AppSettingsRepository {
         .toSet();
   }
 
-  Future<void> addBlockedToolName(String toolName) async {
-    final blockedTools = await getBlockedToolNames();
-    blockedTools.add(toolName.trim());
-    await _preferences.setStringList(
-      _blockedToolNamesKey,
-      blockedTools.toList()..sort(),
-    );
-  }
+  Future<void> addBlockedToolName(String toolName) => _writes.run(() async {
+        final blockedTools = await getBlockedToolNames();
+        blockedTools.add(toolName.trim());
+        await _preferences.setStringList(
+          _blockedToolNamesKey,
+          blockedTools.toList()..sort(),
+        );
+      });
 
-  Future<void> removeBlockedToolName(String toolName) async {
-    final blockedTools = await getBlockedToolNames();
-    blockedTools.remove(toolName.trim());
-    await _preferences.setStringList(
-      _blockedToolNamesKey,
-      blockedTools.toList()..sort(),
-    );
-  }
+  Future<void> removeBlockedToolName(String toolName) => _writes.run(() async {
+        final blockedTools = await getBlockedToolNames();
+        blockedTools.remove(toolName.trim());
+        await _preferences.setStringList(
+          _blockedToolNamesKey,
+          blockedTools.toList()..sort(),
+        );
+      });
 
   Future<Set<String>> getDisabledSkillIds() async {
     final values = _preferences.getStringList(_disabledSkillIdsKey) ?? const [];
@@ -675,23 +682,23 @@ class AppSettingsRepository {
         .toSet();
   }
 
-  Future<void> disableSkillId(String skillId) async {
-    final disabled = await getDisabledSkillIds();
-    disabled.add(skillId.trim());
-    await _preferences.setStringList(
-      _disabledSkillIdsKey,
-      disabled.toList()..sort(),
-    );
-  }
+  Future<void> disableSkillId(String skillId) => _writes.run(() async {
+        final disabled = await getDisabledSkillIds();
+        disabled.add(skillId.trim());
+        await _preferences.setStringList(
+          _disabledSkillIdsKey,
+          disabled.toList()..sort(),
+        );
+      });
 
-  Future<void> enableSkillId(String skillId) async {
-    final disabled = await getDisabledSkillIds();
-    disabled.remove(skillId.trim());
-    await _preferences.setStringList(
-      _disabledSkillIdsKey,
-      disabled.toList()..sort(),
-    );
-  }
+  Future<void> enableSkillId(String skillId) => _writes.run(() async {
+        final disabled = await getDisabledSkillIds();
+        disabled.remove(skillId.trim());
+        await _preferences.setStringList(
+          _disabledSkillIdsKey,
+          disabled.toList()..sort(),
+        );
+      });
 
   Future<String?> getLatestSkillInstallUrl() async {
     final value = _preferences.getString(_latestSkillInstallUrlKey)?.trim();

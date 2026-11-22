@@ -28,7 +28,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // 正在自动摘要状态提供者
-final isAutoSummarizingProvider = StateProvider<bool>((ref) => false);
 
 // 加载更多状态提供者
 final isLoadingMoreProvider = StateProvider<bool>((ref) => false);
@@ -179,7 +178,7 @@ final runtimeStreamingPreviewForGroupProvider = StateNotifierProvider.family<
     RuntimeStreamingPreviewController,
     RuntimeStreamingPreviewState,
     int?>((ref, groupId) {
-  return RuntimeStreamingPreviewController(ref);
+  return RuntimeStreamingPreviewController(ref, groupId: groupId);
 });
 
 final runtimeStreamingPreviewStateProvider =
@@ -322,7 +321,7 @@ final activeTurnStatusFloatingVisibilityProvider = Provider<bool>((ref) {
 
 class RuntimeStreamingPreviewController
     extends StateNotifier<RuntimeStreamingPreviewState> {
-  RuntimeStreamingPreviewController(this._ref)
+  RuntimeStreamingPreviewController(this._ref, {this.groupId})
       : _projector = RuntimeStreamingPreviewProjector(
           onEventConsumed: (message, event, timestamp) {
             final traceId = message.streamTraceId?.trim();
@@ -333,7 +332,9 @@ class RuntimeStreamingPreviewController
                 turnId.isEmpty) {
               return;
             }
-            _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
+            _ref
+                .read(streamingTraceRecorderForGroupProvider(groupId).notifier)
+                .recordStage(
               traceId: traceId,
               turnId: turnId,
               stage: StreamingTraceStage.previewEventConsumed,
@@ -353,6 +354,7 @@ class RuntimeStreamingPreviewController
   static const Duration _minPublishInterval = Duration(milliseconds: 33);
 
   final Ref _ref;
+  final int? groupId;
   final RuntimeStreamingPreviewProjector _projector;
   Timer? _flushTimer;
   DateTime? _lastPublishedAt;
@@ -427,7 +429,8 @@ class RuntimeStreamingPreviewController
       return;
     }
 
-    final recorder = _ref.read(streamingTraceRecorderProvider.notifier);
+    final recorder =
+        _ref.read(streamingTraceRecorderForGroupProvider(groupId).notifier);
     if (event is StreamingContentBlockStartEvent &&
         event.blockType == StreamingContentBlockType.toolUse) {
       final toolName = event.toolName?.trim();
@@ -558,7 +561,9 @@ class RuntimeStreamingPreviewController
         traceId.isNotEmpty &&
         turnId != null &&
         turnId.isNotEmpty) {
-      _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
+      _ref
+          .read(streamingTraceRecorderForGroupProvider(groupId).notifier)
+          .recordStage(
         traceId: traceId,
         turnId: turnId,
         stage: StreamingTraceStage.previewStateCommitted,

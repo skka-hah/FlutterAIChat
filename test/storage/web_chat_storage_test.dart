@@ -9,6 +9,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('concurrent session writes retain distinct IDs and messages', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final a = WebChatStorage(preferences);
+    final b = WebChatStorage(preferences);
+    final groups = await Future.wait([
+      a.insertGroup(ChatGroup(title: 'A')),
+      b.insertGroup(ChatGroup(title: 'B')),
+    ]);
+    expect(groups.toSet(), hasLength(2));
+    final messages = await Future.wait([
+      a.insertMessage(
+          ChatMessage(text: 'A', role: MessageRole.user), groups[0]),
+      b.insertMessage(
+          ChatMessage(text: 'B', role: MessageRole.user), groups[1]),
+    ]);
+    expect(messages.toSet(), hasLength(2));
+    expect((await a.getMessagesByGroup(groups[0])).single.text, 'A');
+    expect((await b.getMessagesByGroup(groups[1])).single.text, 'B');
+  });
+
   test('web storage uses latest-first pagination windows', () async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();

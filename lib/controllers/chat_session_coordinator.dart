@@ -131,7 +131,7 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
     try {
       final dbHelper = _ref.read(databaseProvider);
       final manager = _ref.read(agentRunManagerProvider);
-      final queue = _ref.read(followUpDispatchQueueProvider);
+      final queue = _ref.read(followUpDispatchQueueProvider(id));
       queue.takeAllForNextTurn(id);
       final run = manager.mainTurnForGroup(id);
       if (run != null) {
@@ -143,6 +143,8 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
         }
       }
       await dbHelper.deleteGroup(id);
+      _ref.invalidate(followUpDispatchQueueProvider(id));
+      _ref.invalidate(fileToolHostAdaptersForGroupProvider(id));
       _ref.invalidate(messagesForGroupProvider(id));
       _ref.invalidate(chatSendStateForGroupProvider(id));
       _ref.invalidate(runtimeAssistantDraftForGroupProvider(id));

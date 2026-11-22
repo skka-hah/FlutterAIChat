@@ -30,6 +30,7 @@ enum PlannerRequestTraceStage {
 class PlannerRequestTraceEvent {
   const PlannerRequestTraceEvent({
     required this.turnId,
+    this.groupId,
     required this.requestId,
     required this.stage,
     required this.timestamp,
@@ -38,6 +39,7 @@ class PlannerRequestTraceEvent {
   });
 
   final int turnId;
+  final int? groupId;
   final String requestId;
   final PlannerRequestTraceStage stage;
   final DateTime timestamp;
@@ -106,6 +108,7 @@ class AgentPlannerService {
     _emitPlannerRequestTrace(
       PlannerRequestTraceEvent(
         turnId: turn.id!,
+        groupId: turn.groupId,
         requestId: plannerRequestId,
         stage: PlannerRequestTraceStage.requestStarted,
         timestamp: DateTime.now(),
@@ -121,6 +124,7 @@ class AgentPlannerService {
                   _emitPlannerRequestTrace(
                     PlannerRequestTraceEvent(
                       turnId: turn.id!,
+                      groupId: turn.groupId,
                       requestId: plannerRequestId,
                       stage: PlannerRequestTraceStage.firstChunk,
                       timestamp: DateTime.now(),
@@ -163,12 +167,14 @@ class AgentPlannerService {
         currentTurnRunning: currentTurnRunning,
         config: plannerConfig,
         availableTools: plannerToolOptions,
-        onRetryScheduled: config.onPlannerRetryScheduled ?? _onPlannerRetryScheduled,
+        onRetryScheduled:
+            config.onPlannerRetryScheduled ?? _onPlannerRetryScheduled,
       );
       if (decision != null) {
         _emitPlannerRequestTrace(
           PlannerRequestTraceEvent(
             turnId: turn.id!,
+            groupId: turn.groupId,
             requestId: plannerRequestId,
             stage: PlannerRequestTraceStage.requestCompleted,
             timestamp: DateTime.now(),
@@ -186,6 +192,7 @@ class AgentPlannerService {
       _emitPlannerRequestTrace(
         PlannerRequestTraceEvent(
           turnId: turn.id!,
+          groupId: turn.groupId,
           requestId: plannerRequestId,
           stage: PlannerRequestTraceStage.requestCompleted,
           timestamp: DateTime.now(),
@@ -200,6 +207,7 @@ class AgentPlannerService {
       _emitPlannerRequestTrace(
         PlannerRequestTraceEvent(
           turnId: turn.id!,
+          groupId: turn.groupId,
           requestId: plannerRequestId,
           stage: PlannerRequestTraceStage.requestCompleted,
           timestamp: DateTime.now(),
@@ -420,5 +428,4 @@ class AgentPlannerService {
     }
     return '${normalized.substring(0, 240)}...';
   }
-
 }

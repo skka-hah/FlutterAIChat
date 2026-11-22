@@ -5,7 +5,8 @@ import 'package:ai_chat/services/artifact/artifact_file_storage_service.dart';
 import 'package:ai_chat/services/chat_service.dart';
 import 'package:ai_chat/services/chat_trace_recorder.dart';
 import 'package:ai_chat/services/file_tools/file_tool_root_service.dart';
-import 'package:ai_chat/services/follow_up_dispatch_queue.dart';
+import 'package:ai_chat/services/file_tools/file_tool_host_adapters.dart';
+import 'package:ai_chat/repositories/chat_event_repository.dart';
 import 'package:ai_chat/services/skills/github_skill_fetcher.dart';
 import 'package:ai_chat/services/skills/github_skill_source_resolver.dart';
 import 'package:ai_chat/services/skills/skill_index_service.dart';
@@ -22,11 +23,11 @@ class AppRuntime {
     required this.sharedPreferences,
     required this.appSettingsRepository,
     required this.chatStorage,
-    required this.followUpDispatchQueue,
+    required this.chatEventRepository,
     required this.chatAttachmentPickerService,
     required this.chatAttachmentStorageService,
     required this.artifactFileStorageService,
-    required this.fileToolRootService,
+    required this.fileToolHostAdapters,
     required this.skillStorageService,
     required this.gitHubSkillSourceResolver,
     required this.gitHubSkillFetcher,
@@ -35,17 +36,18 @@ class AppRuntime {
     required this.skillInstallerService,
     required this.traceRecorder,
     required this.chatService,
-    required this.turnHarness,
+    required this.createTurnHarness,
   });
 
   final SharedPreferences sharedPreferences;
   final AppSettingsRepository appSettingsRepository;
   final ChatStorage chatStorage;
-  final FollowUpDispatchQueue followUpDispatchQueue;
+  final ChatEventRepository chatEventRepository;
   final ChatAttachmentPickerService? chatAttachmentPickerService;
   final ChatAttachmentStorageService? chatAttachmentStorageService;
   final ArtifactFileStorageService? artifactFileStorageService;
-  final FileToolRootService? fileToolRootService;
+  final FileToolHostAdapters? fileToolHostAdapters;
+  FileToolRootService? get fileToolRootService => fileToolHostAdapters?.rootService;
   final SkillStorageService skillStorageService;
   final GitHubSkillSourceResolver gitHubSkillSourceResolver;
   final GitHubSkillFetcher gitHubSkillFetcher;
@@ -54,5 +56,7 @@ class AppRuntime {
   final SkillInstallerService skillInstallerService;
   final ChatTraceRecorder traceRecorder;
   final ChatService chatService;
-  final TurnHarness? turnHarness;
+
+  /// Builds the execution graph after a run acquires an execution slot.
+  final TurnHarness Function(int groupId) createTurnHarness;
 }

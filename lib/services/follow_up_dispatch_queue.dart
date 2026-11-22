@@ -1,4 +1,8 @@
 import '../models/chat/send_message_request.dart';
+import '../models/session/session_runtime_config.dart';
+
+/// Configuration captured when a follow-up is submitted.
+typedef FollowUpRuntime = ({SessionRuntimeConfig? runtime, String? prompt});
 
 class PendingFollowUpRequest {
   const PendingFollowUpRequest({
@@ -6,12 +10,14 @@ class PendingFollowUpRequest {
     required this.dispatchMode,
     required this.sequence,
     this.groupId,
+    this.runtime,
   });
 
   final int? groupId;
   final SendMessageRequest request;
   final SendMessageDispatchMode dispatchMode;
   final int sequence;
+  final FollowUpRuntime? runtime;
 }
 
 /// Runtime-only queue for follow-up user inputs submitted while a turn is
@@ -30,12 +36,14 @@ class FollowUpDispatchQueue {
   void enqueue({
     required int? groupId,
     required SendMessageRequest request,
+    FollowUpRuntime? runtime,
   }) {
     final entry = PendingFollowUpRequest(
       groupId: groupId,
       request: request,
       dispatchMode: request.dispatchMode,
       sequence: _nextSequence++,
+      runtime: runtime,
     );
     _pendingByGroup.putIfAbsent(groupId, () => <PendingFollowUpRequest>[]).add(
           entry,
@@ -64,6 +72,17 @@ class FollowUpDispatchQueue {
     }
     _removeEntries(pending);
     return pending;
+  }
+
+  /// Batches adjacent requests submitted with the same configuration.
+  List<PendingFollowUpRequest> takeNextTurn(int groupId) {
+    final pending = _pendingForResolvedGroup(groupId);
+    if (pending.isEmpty) return pending;
+    final batch = pending
+        .takeWhile((entry) => entry.runtime == pending.first.runtime)
+        .toList(growable: false);
+    _removeEntries(batch);
+    return batch;
   }
 
   List<PendingFollowUpRequest> _pendingForResolvedGroup(int? groupId) {
