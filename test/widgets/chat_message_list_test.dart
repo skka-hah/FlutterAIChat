@@ -325,8 +325,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.streamingResponse,
                 isGenerating: true,
@@ -339,7 +338,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '帮我回答',
@@ -349,7 +348,7 @@ void main() {
           timestamp: DateTime(2026, 5, 5, 10, 0, 0),
         ),
       ]);
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           RuntimeStreamingPreviewState(
         messages: [
           RuntimeStreamingPreviewMessage(
@@ -388,7 +387,7 @@ void main() {
       expect(previewFinder, findsOneWidget);
       final previewElement = tester.element(previewFinder);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '帮我回答',
@@ -411,9 +410,9 @@ void main() {
           },
         ),
       ]);
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           const RuntimeStreamingPreviewState();
-      container.read(chatSendStateProvider.notifier).update(
+      container.read(selectedChatSendNotifierProvider).update(
             phase: ChatSendPhase.idle,
             isGenerating: false,
           );
@@ -473,8 +472,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
-          runtimeStreamingPreviewStateProvider.overrideWith(
-            (ref) => RuntimeStreamingPreviewController(ref),
+          runtimeStreamingPreviewForGroupProvider.overrideWith((ref, groupId) => RuntimeStreamingPreviewController(ref),
           ),
         ],
       );
@@ -483,7 +481,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '帮我用 HTML 可视化 iOS 架构',
@@ -493,7 +491,7 @@ void main() {
           timestamp: DateTime(2026, 6, 8, 12, 0, 0),
         ),
       ]);
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           RuntimeStreamingPreviewState(
         messages: [
           RuntimeStreamingPreviewMessage(
@@ -533,7 +531,7 @@ void main() {
       expect(previewFinder, findsOneWidget);
       final previewElement = tester.element(previewFinder);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '帮我用 HTML 可视化 iOS 架构',
@@ -556,7 +554,7 @@ void main() {
           },
         ),
       ]);
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           const RuntimeStreamingPreviewState();
       await tester.pump();
 
@@ -870,8 +868,7 @@ void main() {
           hasMoreMessagesProvider.overrideWith((ref) => false),
           scrollControllerProvider.overrideWith((ref) => scrollController),
           chatBottomOverlayHeightProvider.overrideWith((ref) => 220),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.preparing,
                 isGenerating: false,
@@ -884,7 +881,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         for (var i = 0; i < 10; i++) ...[
           _buildMessage(
             id: i * 2 + 1,
@@ -961,8 +958,7 @@ void main() {
           hasMoreMessagesProvider.overrideWith((ref) => false),
           scrollControllerProvider.overrideWith((ref) => scrollController),
           chatBottomOverlayHeightProvider.overrideWith((ref) => 220),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.preparing,
                 isGenerating: false,
@@ -975,7 +971,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         for (var i = 0; i < 10; i++) ...[
           _buildMessage(
             id: i * 2 + 1,
@@ -1027,7 +1023,7 @@ void main() {
       final firstExtraInset =
           container.read(chatMessageListExtraBottomInsetProvider);
 
-      container.read(messagesProvider.notifier).addMessage(
+      container.read(selectedMessagesNotifierProvider).addMessage(
             _buildMessage(
               id: 102,
               timestamp: DateTime(2026, 6, 5, 13, 0, 30),
@@ -1289,7 +1285,7 @@ void main() {
       final element = tester.element(find.byType(ChatMessageList));
       final container = ProviderScope.containerOf(element);
       final notifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       notifier.state = updatedPreviewState;
       await tester.pump();
 
@@ -1348,8 +1344,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.streamingResponse,
                 isGenerating: true,
@@ -1362,7 +1357,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 1,
           text: '做个 artifact',
@@ -1372,7 +1367,7 @@ void main() {
           timestamp: DateTime(2026, 5, 29, 14, 0, 0),
         ),
       ]);
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           RuntimeStreamingPreviewState(
         messages: [
           RuntimeStreamingPreviewMessage(
@@ -1411,7 +1406,7 @@ void main() {
       final previewFinder = find.byType(ArtifactPreviewSurface);
       final initialElement = tester.element(previewFinder);
 
-      container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+      container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
           RuntimeStreamingPreviewState(
         messages: [
           RuntimeStreamingPreviewMessage(
@@ -1459,8 +1454,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.idle,
                 isGenerating: false,
@@ -1473,7 +1467,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '当前问题',
@@ -1509,7 +1503,7 @@ void main() {
         find.byKey(const ValueKey('timeline-block-0_30-analysis-1')),
       );
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 10,
           text: '更早的问题',
@@ -1562,8 +1556,7 @@ void main() {
       final container = ProviderContainer(
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.idle,
                 isGenerating: false,
@@ -1576,7 +1569,7 @@ void main() {
         container.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 1,
           text: '问题一',
@@ -1609,7 +1602,7 @@ void main() {
       expect(_findStreamingFinalBlock(), findsNothing);
       expect(find.text('Title'), findsOneWidget);
 
-      container.read(messagesProvider.notifier).addMessage(
+      container.read(selectedMessagesNotifierProvider).addMessage(
             ChatMessage(
               id: 3,
               text: '问题二',
@@ -1618,7 +1611,7 @@ void main() {
               contentType: MessageContentType.plainText,
             ),
           );
-      container.read(messagesProvider.notifier).addMessage(
+      container.read(selectedMessagesNotifierProvider).addMessage(
             ChatMessage(
               id: 4,
               text: '还在生成',
@@ -1627,7 +1620,7 @@ void main() {
               contentType: MessageContentType.plainText,
             ),
           );
-      container.read(chatSendStateProvider.notifier).update(
+      container.read(selectedChatSendNotifierProvider).update(
             phase: ChatSendPhase.streamingResponse,
             isGenerating: true,
           );
@@ -2331,8 +2324,7 @@ void main() {
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
           scrollControllerProvider.overrideWith((ref) => scrollController),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.idle,
                 isGenerating: false,
@@ -2347,7 +2339,7 @@ void main() {
       });
 
       final baseTime = DateTime(2026, 5, 31, 12);
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         for (var i = 0; i < 24; i++) ...[
           _buildMessage(
             id: i * 2 + 1,
@@ -2383,7 +2375,7 @@ void main() {
       scrollController.jumpTo(targetOffset);
       await tester.pump();
 
-      container.read(messagesProvider.notifier).addMessage(
+      container.read(selectedMessagesNotifierProvider).addMessage(
             _buildMessage(
               text: 'new user turn',
               role: MessageRole.user,
@@ -2404,8 +2396,7 @@ void main() {
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
           scrollControllerProvider.overrideWith((ref) => scrollController),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.preparing,
                 isGenerating: false,
@@ -2430,7 +2421,7 @@ void main() {
       });
 
       final baseTime = DateTime(2026, 5, 31, 12);
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         for (var i = 0; i < 24; i++) ...[
           _buildMessage(
             id: i * 2 + 1,
@@ -2486,8 +2477,7 @@ void main() {
         overrides: [
           hasMoreMessagesProvider.overrideWith((ref) => false),
           scrollControllerProvider.overrideWith((ref) => scrollController),
-          chatSendStateProvider.overrideWith(
-            (ref) => ChatSendStateNotifier()
+          chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
               ..update(
                 phase: ChatSendPhase.preparing,
                 isGenerating: false,
@@ -2512,7 +2502,7 @@ void main() {
       });
 
       final baseTime = DateTime(2026, 5, 31, 12);
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         for (var i = 0; i < 24; i++) ...[
           _buildMessage(
             id: i * 2 + 1,
@@ -2615,7 +2605,7 @@ void main() {
         scrollController.dispose();
       });
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 1,
           text: '问题',
@@ -2866,16 +2856,14 @@ Future<void> _pumpMessageList(
       if (focusNode != null) focusNodeProvider.overrideWith((ref) => focusNode),
       if (repository != null)
         appSettingsRepositoryProvider.overrideWithValue(repository),
-      chatSendStateProvider.overrideWith(
-        (ref) => ChatSendStateNotifier()
+      chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
           ..update(
             phase: sendPhase,
             isGenerating: sendPhase == ChatSendPhase.streamingResponse,
             statusText: sendStatusText,
           ),
       ),
-      runtimeStreamingPreviewStateProvider.overrideWith(
-        (ref) =>
+      runtimeStreamingPreviewForGroupProvider.overrideWith((ref, groupId) =>
             RuntimeStreamingPreviewController(ref)..state = runtimePreviewState,
       ),
       if (activeTurnStatus != null)
@@ -2891,7 +2879,7 @@ Future<void> _pumpMessageList(
     container.dispose();
   });
 
-  container.read(messagesProvider.notifier).setMessages(messages);
+  container.read(selectedMessagesNotifierProvider).setMessages(messages);
 
   await tester.pumpWidget(
     UncontrolledProviderScope(

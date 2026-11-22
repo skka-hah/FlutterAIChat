@@ -224,7 +224,8 @@ final traceRecorderProvider = Provider<ChatTraceRecorder>((ref) {
 });
 
 final followUpDispatchQueueProvider = Provider<FollowUpDispatchQueue>((ref) {
-  return FollowUpDispatchQueue();
+  return ref.watch(appBootstrapRuntimeProvider)?.followUpDispatchQueue ??
+      FollowUpDispatchQueue();
 });
 
 final activeTurnStatusResolverProvider =

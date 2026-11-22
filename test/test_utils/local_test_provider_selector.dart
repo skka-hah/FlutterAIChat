@@ -111,7 +111,8 @@ SelectedHeadlessLiveProvider selectHeadlessLiveProvider({
     final normalizedOverrideId = _normalizeProviderOverrideId(overrideId);
     final provider = defaults.providers
         .where((item) => item.id == normalizedOverrideId)
-        .firstOrNull;
+        .firstOrNull ??
+        defaults.providers.where((item) => item.id == overrideId).firstOrNull;
     if (provider == null) {
       throw StateError(
         'Injected provider "$overrideId" from ${_styleEnvKey(style)} was not found in local defaults.',

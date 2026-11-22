@@ -4,6 +4,7 @@ import '../models/llm/llm_config.dart';
 import '../models/tool/tool_invocation.dart';
 import 'prompt/prompt_locale.dart';
 import 'tool_call_service.dart';
+import 'agent_run_manager.dart';
 import '../utils/logger.dart';
 
 class ChatConfig {
@@ -13,12 +14,24 @@ class ChatConfig {
   final LLMConfig? runtimeConfigOverride;
   final LLMConfig? sideRuntimeConfigOverride;
 
+  /// Receives planner preview events for this request.
+  final PlannerRuntimeStreamListener? onPlannerRuntimeStream;
+
+  /// Active execution that owns this planner request.
+  final AgentRun? run;
+
+  /// Reports retry progress to the execution that owns the request.
+  final void Function(LlmRetryProgress progress)? onPlannerRetryScheduled;
+
   ChatConfig({
     required this.systemPrompt,
     this.userSystemPrompt = '',
     this.promptLocale = PromptLocale.english,
     this.runtimeConfigOverride,
     this.sideRuntimeConfigOverride,
+    this.onPlannerRuntimeStream,
+    this.run,
+    this.onPlannerRetryScheduled,
   });
 }
 

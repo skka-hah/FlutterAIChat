@@ -87,6 +87,8 @@ flowchart TD
 [docs/architecture/project-architecture-overview.md](./docs/architecture/project-architecture-overview.md)
 开始。
 
+多会话运行由 [AgentRunManager](./lib/services/agent_run_manager.dart) 调度，默认执行额度为两个。在聊天抽屉切换会话时，生成与工具执行继续推进。等待确认或回答的 turn 保留会话占用并释放执行额度，恢复时获得新的 `runId`。启动时恢复审批和回答入口，并将上次进程遗留的运行标记为中断。详见[实施计划](./docs/superpowers/plans/2026-11-22-concurrent-agent-runtime-implementation-plan.md)。
+
 ## 文件沙盒
 
 - Agent 看到的是以 `/` 为根的 file-native 沙盒路径

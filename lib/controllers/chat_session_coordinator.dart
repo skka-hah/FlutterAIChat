@@ -1,7 +1,10 @@
 import 'package:ai_chat/models/chat_group.dart';
+import 'package:ai_chat/models/chat_message.dart';
 import 'package:ai_chat/providers/chat_collection_providers.dart';
 import 'package:ai_chat/providers/chat_dependency_providers.dart';
+import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
+import 'package:ai_chat/services/agent_run_manager.dart';
 import 'package:ai_chat/utils/logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -28,16 +31,22 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
   static const int _pageSize = 20;
 
   final Ref _ref;
+  int _selectionVersion = 0;
+  int _historyVersion = 0;
+  bool _isRefreshingHistory = false;
 
   DefaultChatSessionCoordinator(this._ref);
 
   @override
   Future<void> loadGroups() async {
+    final selection = _selectionVersion;
     try {
       final dbHelper = _ref.read(databaseProvider);
       final groups = await dbHelper.getAllGroups();
       _ref.read(groupsProvider.notifier).setGroups(groups);
-      await loadCurrentGroup();
+      if (selection == _selectionVersion) {
+        await loadCurrentGroup();
+      }
     } catch (e) {
       Logger.e(_tag, '加载分组失败', e);
     }
@@ -45,9 +54,11 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
 
   @override
   Future<void> loadCurrentGroup() async {
+    final selection = _selectionVersion;
     try {
       final dbHelper = _ref.read(databaseProvider);
       final latestGroup = await dbHelper.getLatestGroup();
+      if (selection != _selectionVersion) return;
 
       if (latestGroup != null) {
         final now = DateTime.now();
@@ -60,11 +71,7 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
         if (!isSameDay && timeDiff.inHours >= 5) {
           await createNewGroup();
         } else {
-          _ref.read(currentGroupProvider.notifier).state = latestGroup;
-          _ref.read(systemPromptProvider.notifier).state =
-              latestGroup.systemPrompt;
-          await _restoreRuntimeForGroup(latestGroup.id);
-          await loadMessages();
+          await selectGroup(latestGroup);
         }
       } else {
         await createNewGroup();
@@ -76,45 +83,70 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
 
   @override
   Future<void> createNewGroup() async {
+    final groups = _ref.read(groupsProvider);
+    final newGroup = ChatGroup(
+      title: '新对话 ${groups.length + 1}',
+      systemPrompt: _ref.read(systemPromptProvider),
+    );
+    final currentRuntime = _ref.read(currentSessionRuntimeConfigProvider);
+    final selection = _showGroup(newGroup);
     try {
-      final groups = _ref.read(groupsProvider);
-      final systemPrompt = _ref.read(systemPromptProvider);
-      final newGroup = ChatGroup(
-        title: '新对话 ${groups.length + 1}',
-        systemPrompt: systemPrompt,
-      );
-
-      _ref.read(currentGroupProvider.notifier).state = newGroup;
-      final currentRuntime = _ref.read(currentSessionRuntimeConfigProvider);
       final draftRuntime = await _ref
           .read(sessionRuntimeConfigServiceProvider)
           .createDraftRuntime(currentRuntime: currentRuntime);
-      _ref.read(currentSessionRuntimeConfigProvider.notifier).state =
-          draftRuntime;
-      _ref.read(messagesProvider.notifier).clearMessages();
-      _ref.read(hasMoreMessagesProvider.notifier).state = false;
-      _ref.read(isInitializingProvider.notifier).state = false;
+      if (_isSelected(selection, newGroup.id)) {
+        _ref.read(currentSessionRuntimeConfigProvider.notifier).state =
+            draftRuntime;
+      }
     } catch (e) {
       Logger.e(_tag, '创建新分组失败', e);
+    } finally {
+      if (_isSelected(selection, newGroup.id)) {
+        _ref.read(isInitializingProvider.notifier).state = false;
+      }
     }
   }
 
-  Future<void> _restoreRuntimeForGroup(int? groupId) async {
-    if (groupId == null) {
-      _ref.read(currentSessionRuntimeConfigProvider.notifier).state = null;
-      return;
+  int _showGroup(ChatGroup group) {
+    final selection = ++_selectionVersion;
+    _isRefreshingHistory = false;
+    _ref.read(isInitializingProvider.notifier).state = true;
+    _ref.read(isLoadingMoreProvider.notifier).state = false;
+    _ref.read(hasMoreMessagesProvider.notifier).state = false;
+    if (group.id == null) {
+      _ref.read(messagesForGroupProvider(null).notifier).clearMessages();
     }
-    final runtime = await _ref
-        .read(sessionRuntimeConfigServiceProvider)
-        .loadPersisted(groupId);
-    _ref.read(currentSessionRuntimeConfigProvider.notifier).state = runtime;
+    _ref.read(currentSessionRuntimeConfigProvider.notifier).state = null;
+    _ref.read(systemPromptProvider.notifier).state = group.systemPrompt;
+    _ref.read(currentGroupProvider.notifier).state = group;
+    return selection;
   }
+
+  bool _isSelected(int selection, int? groupId) =>
+      selection == _selectionVersion &&
+      _ref.read(currentGroupProvider)?.id == groupId;
 
   @override
   Future<void> deleteGroup(int id) async {
     try {
       final dbHelper = _ref.read(databaseProvider);
+      final manager = _ref.read(agentRunManagerProvider);
+      final queue = _ref.read(followUpDispatchQueueProvider);
+      queue.takeAllForNextTurn(id);
+      final run = manager.mainTurnForGroup(id);
+      if (run != null) {
+        if (run.phase == AgentRunPhase.suspended) {
+          manager.releaseSuspendedTurn(groupId: id, turnId: run.turnId!);
+        } else {
+          manager.cancel(run.runId);
+          await run.done;
+        }
+      }
       await dbHelper.deleteGroup(id);
+      _ref.invalidate(messagesForGroupProvider(id));
+      _ref.invalidate(chatSendStateForGroupProvider(id));
+      _ref.invalidate(runtimeAssistantDraftForGroupProvider(id));
+      _ref.invalidate(runtimeStreamingPreviewForGroupProvider(id));
       _ref.read(groupsProvider.notifier).setGroups(
             _ref.read(groupsProvider).where((group) => group.id != id).toList(),
           );
@@ -124,13 +156,11 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
         return;
       }
 
+      final selection = _selectionVersion;
       final latestGroup = await dbHelper.getLatestGroup();
+      if (!_isSelected(selection, id)) return;
       if (latestGroup != null) {
-        _ref.read(currentGroupProvider.notifier).state = latestGroup;
-        _ref.read(systemPromptProvider.notifier).state =
-            latestGroup.systemPrompt;
-        await _restoreRuntimeForGroup(latestGroup.id);
-        await loadMessages();
+        await selectGroup(latestGroup);
         return;
       }
 
@@ -142,23 +172,51 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
 
   @override
   Future<void> loadMessages() async {
-    final currentGroup = _ref.read(currentGroupProvider);
-    if (currentGroup?.id == null) return;
+    final groupId = _ref.read(currentGroupProvider)?.id;
+    if (groupId == null) return;
+    final selection = _selectionVersion;
+    final history = ++_historyVersion;
+    _isRefreshingHistory = true;
+    _ref.read(isLoadingMoreProvider.notifier).state = false;
 
     try {
       Logger.d(_tag, '开始加载历史消息...');
       final dbHelper = _ref.read(databaseProvider);
-      final messages = await dbHelper.getMessagesByGroup(currentGroup!.id!);
-      final totalCount = await dbHelper.getGroupMessageCount(currentGroup.id!);
+      final provider = messagesForGroupProvider(groupId);
+      final previous = _ref.read(provider);
+      final previousById = {
+        for (final message in previous) message.id: message
+      };
+      final messages = await dbHelper.getMessagesByGroup(groupId);
+      if (!_isSelected(selection, groupId) || history != _historyVersion) {
+        return;
+      }
+      final totalCount = await dbHelper.getGroupMessageCount(groupId);
+      if (!_isSelected(selection, groupId) || history != _historyVersion) {
+        return;
+      }
 
-      _ref.read(messagesProvider.notifier).setMessages(messages);
+      final merged = {for (final message in messages) message.id: message};
+      final unsaved = <ChatMessage>[];
+      for (final message in _ref.read(provider)) {
+        if (message.id == null) {
+          unsaved.add(message);
+        } else if (!identical(previousById[message.id], message) ||
+            !previousById.containsKey(message.id)) {
+          merged[message.id] = message;
+        }
+      }
+      _ref.read(provider.notifier).setMessages([...merged.values, ...unsaved]);
       _ref.read(hasMoreMessagesProvider.notifier).state =
           totalCount > messages.length;
-      _ref.read(isInitializingProvider.notifier).state = false;
-
       Logger.i(_tag, '成功加载 ${messages.length} 条历史消息');
     } catch (e) {
       Logger.e(_tag, '加载历史消息失败', e);
+    } finally {
+      if (_isSelected(selection, groupId) && history == _historyVersion) {
+        _isRefreshingHistory = false;
+        _ref.read(isInitializingProvider.notifier).state = false;
+      }
     }
   }
 
@@ -168,45 +226,72 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
     if (currentGroup?.id == null) return;
     final groupId = currentGroup!.id!;
 
-    if (_ref.read(isLoadingMoreProvider) ||
+    if (_isRefreshingHistory ||
+        _ref.read(isLoadingMoreProvider) ||
         !_ref.read(hasMoreMessagesProvider)) {
       return;
     }
 
+    final selection = _selectionVersion;
+    final history = _historyVersion;
     _ref.read(isLoadingMoreProvider.notifier).state = true;
 
     try {
       final dbHelper = _ref.read(databaseProvider);
       final currentCount = _ref.read(messagesProvider).length;
       final totalCount = await dbHelper.getGroupMessageCount(groupId);
+      if (!_isSelected(selection, groupId) || history != _historyVersion) {
+        return;
+      }
       final newMessages = await dbHelper.getMessagesByGroupWithPagination(
         groupId: groupId,
         limit: _pageSize,
         offset: currentCount,
       );
+      if (!_isSelected(selection, groupId) || history != _historyVersion) {
+        return;
+      }
 
       if (newMessages.isEmpty) {
         _ref.read(hasMoreMessagesProvider.notifier).state = false;
         return;
       }
 
-      _ref.read(messagesProvider.notifier).insertMessages(0, newMessages);
+      _ref
+          .read(selectedMessagesNotifierProvider)
+          .insertMessages(0, newMessages);
       _ref.read(hasMoreMessagesProvider.notifier).state =
           totalCount > currentCount + newMessages.length;
     } catch (e) {
       Logger.e(_tag, '加载更多消息失败', e);
     } finally {
-      _ref.read(isLoadingMoreProvider.notifier).state = false;
+      if (_isSelected(selection, groupId) && history == _historyVersion) {
+        _ref.read(isLoadingMoreProvider.notifier).state = false;
+      }
     }
   }
 
   @override
   Future<void> selectGroup(ChatGroup group) async {
-    _ref.read(currentGroupProvider.notifier).state = group;
-    _ref.read(systemPromptProvider.notifier).state = group.systemPrompt;
-    _ref.read(messagesProvider.notifier).clearMessages();
-    await _restoreRuntimeForGroup(group.id);
-    await loadMessages();
+    final selection = _showGroup(group);
+    final groupId = group.id;
+    if (groupId == null) {
+      _ref.read(isInitializingProvider.notifier).state = false;
+      return;
+    }
+    try {
+      final runtime = await _ref
+          .read(sessionRuntimeConfigServiceProvider)
+          .loadPersisted(groupId);
+      if (!_isSelected(selection, groupId)) return;
+      _ref.read(currentSessionRuntimeConfigProvider.notifier).state = runtime;
+      await loadMessages();
+    } catch (e) {
+      if (_isSelected(selection, groupId)) {
+        _ref.read(isInitializingProvider.notifier).state = false;
+      }
+      rethrow;
+    }
   }
 
   @override

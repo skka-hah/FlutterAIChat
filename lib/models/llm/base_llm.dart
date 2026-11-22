@@ -27,14 +27,6 @@ typedef PlannerRuntimeStreamListener = void Function(
   StreamingMessageEvent event,
 );
 
-/// Optional capability for LLMs that can surface runtime-only planner stream
-/// snapshots while still returning one final decision to the loop.
-abstract class PlannerRuntimeStreamingCapable {
-  void setPlannerRuntimeStreamListener(
-    PlannerRuntimeStreamListener? listener,
-  );
-}
-
 abstract class BaseLLM {
   /// Architecture:
   /// - docs/architecture/append-only-transcript.md

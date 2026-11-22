@@ -114,6 +114,7 @@ class DefaultDecisionToolCallExecutor implements DecisionToolCallExecutor {
     var shouldStopFurtherExecution = false;
 
     for (final batch in debugBuildExecutionBatches(decision.toolCalls)) {
+      if (config.run?.isCancellationRequested == true) break;
       final preparedCalls = await _createPreparedToolCalls(
         turnId: turn.id!,
         toolCalls: batch.toolCalls,
@@ -519,10 +520,12 @@ class DefaultDecisionToolCallExecutor implements DecisionToolCallExecutor {
     final controller = StreamController<ChatEvent>();
     unawaited(() async {
       try {
+        final currentTurnEvents = await _eventRepository.listEventsByTurn(turn.id!);
+        if (config.run?.isCancellationRequested == true) return;
         final execution = await _toolCallService.executeToolInvocation(
           groupId: turn.groupId,
           invocation: invocation,
-          currentTurnEvents: await _eventRepository.listEventsByTurn(turn.id!),
+          currentTurnEvents: currentTurnEvents,
           sideRuntimeConfigOverride: config.sideRuntimeConfigOverride,
           onExecutionStarted: (
               {required invocation, required toolAccess}) async {

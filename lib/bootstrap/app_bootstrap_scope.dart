@@ -14,7 +14,8 @@ class AppBootstrapScope<TRuntime> extends StatefulWidget {
     this.startupProbe,
   });
 
-  final Future<TRuntime> Function() initializeRuntime;
+  final Future<TRuntime> Function(ProviderContainer container)
+      initializeRuntime;
   final Widget child;
   final BootstrapStartupProbe? startupProbe;
 
@@ -45,7 +46,7 @@ class _AppBootstrapScopeState<TRuntime>
         .read(appBootstrapStateNotifierProvider.notifier)
         .update(const AppBootstrapState<Object?>.booting());
     _controller = AppBootstrapController<TRuntime>(
-      initializeRuntime: widget.initializeRuntime,
+      initializeRuntime: () => widget.initializeRuntime(_container),
     );
     _listener = _syncBootstrapState;
     _controller.addListener(_listener);

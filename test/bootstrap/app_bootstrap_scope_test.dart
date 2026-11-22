@@ -12,7 +12,7 @@ void main() {
 
     await tester.pumpWidget(
       AppBootstrapScope<TestRuntime>(
-        initializeRuntime: () => runtimeCompleter.future,
+        initializeRuntime: (_) => runtimeCompleter.future,
         child: const _FakeApp(),
       ),
     );
@@ -35,7 +35,7 @@ void main() {
 
     await tester.pumpWidget(
       AppBootstrapScope<TestRuntime>(
-        initializeRuntime: () => runtimeCompleter.future,
+        initializeRuntime: (_) => runtimeCompleter.future,
         startupProbe: probe,
         child: const _FakeApp(),
       ),

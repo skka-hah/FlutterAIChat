@@ -91,7 +91,7 @@ void main() {
       );
 
       final previewNotifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       previewNotifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_1'),
       );
@@ -745,7 +745,7 @@ void main() {
       );
 
       final previewNotifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       previewNotifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_1'),
       );
@@ -849,7 +849,7 @@ void main() {
       await _waitForSendPhase(container, ChatSendPhase.streamingResponse);
 
       final turnId = harness.recordedTurns.single.id!;
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
+      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
       await dispatcher.dispatchPreviewEvent(
         StreamingMessageStartEvent(
           messageId: 'preview_1',
@@ -929,7 +929,7 @@ void main() {
       );
 
       final previewNotifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       previewNotifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_1'),
       );
@@ -1479,7 +1479,7 @@ void main() {
       );
 
       final previewNotifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       previewNotifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_1'),
       );
@@ -1764,7 +1764,7 @@ void main() {
       final toolMessageId =
           await databaseHelper.insertMessage(toolMessage, groupId);
       toolMessage.id = toolMessageId;
-      container.read(messagesProvider.notifier).addMessage(toolMessage);
+      container.read(selectedMessagesNotifierProvider).addMessage(toolMessage);
 
       container.read(chatControllerProvider).cancelStreamSubscription();
       afterEventsGate.complete();
@@ -1862,7 +1862,7 @@ void main() {
       final messageId =
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = messageId;
-      container.read(messagesProvider.notifier).addMessage(confirmationMessage);
+      container.read(selectedMessagesNotifierProvider).addMessage(confirmationMessage);
 
       await container.read(chatSendCoordinatorProvider).confirmToolInvocation(
             confirmationMessage,
@@ -1970,7 +1970,7 @@ void main() {
       final promptMessageId =
           await databaseHelper.insertMessage(promptMessage, groupId);
       promptMessage.id = promptMessageId;
-      container.read(messagesProvider.notifier).addMessage(promptMessage);
+      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
 
       await container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
             promptMessage,
@@ -2322,7 +2322,7 @@ Future<void> _interruptLatestAssistant({
   required ProviderContainer container,
   required DatabaseHelper databaseHelper,
 }) async {
-  container.read(chatSendStateProvider.notifier).update(
+  container.read(selectedChatSendNotifierProvider).update(
         isGenerating: false,
         phase: ChatSendPhase.idle,
       );
@@ -2335,7 +2335,7 @@ Future<void> _interruptLatestAssistant({
   }
   final assistantId = assistant!.id!;
   container
-      .read(messagesProvider.notifier)
+      .read(selectedMessagesNotifierProvider)
       .updateMessageStatus(assistantId, MessageStatus.interrupted);
   await databaseHelper.updateMessageStatus(
     assistantId,

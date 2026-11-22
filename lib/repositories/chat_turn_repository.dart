@@ -1,10 +1,46 @@
 import '../models/chat_turn.dart';
+import '../models/chat_message.dart';
 import '../storage/chat_storage.dart';
 
 class ChatTurnRepository {
   final ChatStorage _storage;
 
   ChatTurnRepository(this._storage);
+
+  /// Settles executions left running by a prior app process at bootstrap.
+  Future<List<ChatTurn>> interruptAbandonedTurns() async {
+    final checkpoints = <ChatTurn>[];
+    for (final group in await _storage.getAllGroups()) {
+      final groupId = group.id;
+      if (groupId == null) continue;
+      final turns = await _storage.getTurnsByGroup(groupId);
+      final waiting = turns.where((turn) =>
+          turn.id != null &&
+          (turn.status == ChatTurnStatus.awaitingToolConfirmation ||
+              turn.status == ChatTurnStatus.awaitingUserInteraction));
+      if (waiting.isNotEmpty) checkpoints.add(waiting.last);
+      for (final turn in turns) {
+        final turnId = turn.id;
+        if (turnId == null || turn.status != ChatTurnStatus.running) continue;
+        final messages = await _storage.getMessagesByGroup(groupId);
+        if (!messages.any((message) =>
+            message.payloadJson?['agentTurnId'] == turnId &&
+            message.status == MessageStatus.interrupted)) {
+          await _storage.insertMessage(
+            ChatMessage(
+              text: '上次运行因应用退出而中断。',
+              role: MessageRole.assistant,
+              status: MessageStatus.interrupted,
+              payloadJson: {'agentTurnId': turnId},
+            ),
+            groupId,
+          );
+        }
+        await markCancelled(turnId, stopReason: 'app_process_interrupted');
+      }
+    }
+    return checkpoints;
+  }
 
   Future<int> createTurn(ChatTurn turn) {
     return _storage.insertTurn(turn);

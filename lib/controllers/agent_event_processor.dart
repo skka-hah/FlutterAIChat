@@ -14,6 +14,7 @@ import 'package:ai_chat/providers/chat_collection_providers.dart';
 import 'package:ai_chat/providers/chat_dependency_providers.dart';
 import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
+import 'package:ai_chat/services/agent_run_manager.dart';
 import 'package:ai_chat/storage/chat_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -55,14 +56,16 @@ class AgentEventProcessor {
     required int groupId,
     required String traceTurnId,
     int? agentTurnId,
+    AgentRun? run,
     AgentEventHooks hooks = const AgentEventHooks(),
   })  : _ref = ref,
         _groupId = groupId,
         _traceTurnId = traceTurnId,
-        _agentTurnId = agentTurnId,
+        _initialTurnId = agentTurnId,
+        _run = run,
         _hooks = hooks {
     _runtimePreviewSubscription = _ref.listen<RuntimeStreamingPreviewState>(
-      runtimeStreamingPreviewStateProvider,
+      runtimeStreamingPreviewForGroupProvider(_groupId),
       (previous, next) {
         unawaited(_handleRuntimePreviewStateChanged(next));
       },
@@ -73,7 +76,9 @@ class AgentEventProcessor {
   final Ref _ref;
   final int _groupId;
   final String _traceTurnId;
-  final int? _agentTurnId;
+  final int? _initialTurnId;
+  final AgentRun? _run;
+  int? get _agentTurnId => _run?.turnId ?? _initialTurnId;
   final AgentEventHooks _hooks;
 
   _AssistantDraftStage? _assistantDraftStage;
@@ -105,7 +110,9 @@ class AgentEventProcessor {
     if (_disposed) {
       return;
     }
-    await _ref.read(turnProjectionDispatcherProvider).dispatchTruthEvent(
+    await _ref
+        .read(turnProjectionDispatcherProvider(_groupId))
+        .dispatchTruthEvent(
           event,
           _handleTruthEvent,
         );
@@ -131,7 +138,7 @@ class AgentEventProcessor {
         return;
       case ChatEventType.turnStatus:
         if (_isTerminalFailureStatus(event.content)) {
-          _ref.read(chatSendStateProvider.notifier).update(
+          _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
                 isGenerating: false,
                 phase: ChatSendPhase.idle,
               );
@@ -154,7 +161,7 @@ class AgentEventProcessor {
         return;
       case ChatEventType.assistantToolConfirmation:
         _hasPendingConfirmation = true;
-        _ref.read(chatSendStateProvider.notifier).update(
+        _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
               isGenerating: false,
               phase: ChatSendPhase.awaitingConfirmation,
             );
@@ -177,7 +184,7 @@ class AgentEventProcessor {
         }
         return;
       case ChatEventType.assistantQuestionPrompt:
-        _ref.read(chatSendStateProvider.notifier).update(
+        _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
               isGenerating: false,
               phase: ChatSendPhase.idle,
             );
@@ -193,13 +200,15 @@ class AgentEventProcessor {
         if (hook != null) {
           final handled = await hook(event);
           if (handled) {
-            _ref.read(chatSendStateProvider.notifier).setPhase(
+            _ref
+                .read(chatSendStateForGroupProvider(_groupId).notifier)
+                .setPhase(
                   ChatSendPhase.executingTool,
                 );
             return;
           }
         }
-        _ref.read(chatSendStateProvider.notifier).setPhase(
+        _ref.read(chatSendStateForGroupProvider(_groupId).notifier).setPhase(
               ChatSendPhase.executingTool,
             );
         await _insertStructuredAssistant(
@@ -265,7 +274,11 @@ class AgentEventProcessor {
     _disposed = true;
     _runtimePreviewSubscription?.close();
     _runtimePreviewSubscription = null;
-    await _ref.read(turnProjectionDispatcherProvider).clearRuntimePreview();
+    _ref.read(runtimeAssistantDraftForGroupProvider(_groupId).notifier).state =
+        null;
+    await _ref
+        .read(turnProjectionDispatcherProvider(_groupId))
+        .clearRuntimePreview(turnId: _agentTurnId);
   }
 
   // --- Private helpers ------------------------------------------------------
@@ -297,7 +310,7 @@ class AgentEventProcessor {
     );
     final id = await dbHelper.insertMessage(message, _groupId);
     message.id = id;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
   }
 
   Future<void> _insertStructuredAssistant({
@@ -315,7 +328,7 @@ class AgentEventProcessor {
     );
     final id = await dbHelper.insertMessage(message, _groupId);
     message.id = id;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
   }
 
   Future<void> _insertSystemMarker({
@@ -333,7 +346,7 @@ class AgentEventProcessor {
     );
     final id = await dbHelper.insertMessage(message, _groupId);
     message.id = id;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
   }
 
   Future<void> _appendToolResultMessage({
@@ -358,7 +371,7 @@ class AgentEventProcessor {
     if (attachments.isNotEmpty) {
       await dbHelper.insertMessageAttachments(id, attachments);
     }
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
   }
 
   Future<List<ChatAttachment>> _generatedImageAttachmentsFromToolResult(
@@ -427,13 +440,13 @@ class AgentEventProcessor {
     _ensureAssistantDraftStage(_AssistantDraftStage.response);
     if (_currentTurnHasVisibleRuntimePreviewResponse()) {
       _responseOwnedByRuntimePreview = true;
-      _ref.read(chatSendStateProvider.notifier).update(
+      _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
             isGenerating: true,
             phase: ChatSendPhase.streamingResponse,
           );
       return;
     }
-    _ref.read(chatSendStateProvider.notifier).update(
+    _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
           isGenerating: true,
           phase: ChatSendPhase.streamingResponse,
         );
@@ -461,7 +474,7 @@ class AgentEventProcessor {
 
     _assistantDraftStage ??= _AssistantDraftStage.reasoning;
 
-    final draft = _ref.read(runtimeAssistantDraftProvider);
+    final draft = _ref.read(runtimeAssistantDraftForGroupProvider(_groupId));
     final now = DateTime.now();
     final nextPayload = _withIdentity({
       'draftStage': 'reasoning',
@@ -480,8 +493,9 @@ class AgentEventProcessor {
         'previewContentBlockId': event.payloadJson!['previewContentBlockId'],
     });
     if (draft == null || draft.turnId != _runtimeTurnId()) {
-      _ref.read(runtimeAssistantDraftProvider.notifier).state =
-          RuntimeAssistantDraft(
+      _ref
+          .read(runtimeAssistantDraftForGroupProvider(_groupId).notifier)
+          .state = RuntimeAssistantDraft(
         turnId: _runtimeTurnId(),
         draftId: '${_runtimeTurnId()}-reasoning-draft',
         blockType: AssistantTurnBlockType.analysis,
@@ -491,7 +505,9 @@ class AgentEventProcessor {
         payload: nextPayload,
       );
     } else {
-      _ref.read(runtimeAssistantDraftProvider.notifier).state = draft.copyWith(
+      _ref
+          .read(runtimeAssistantDraftForGroupProvider(_groupId).notifier)
+          .state = draft.copyWith(
         updatedAt: now,
         reasoningText: '${draft.reasoningText ?? ''}$content',
         payload: {
@@ -507,7 +523,8 @@ class AgentEventProcessor {
     required ChatEvent event,
   }) async {
     _receivedFinalAnswer = true;
-    final runtimeDraft = _ref.read(runtimeAssistantDraftProvider);
+    final runtimeDraft =
+        _ref.read(runtimeAssistantDraftForGroupProvider(_groupId));
     final finalText = event.content ?? _latestRuntimePreviewResponseText ?? '';
 
     final message = ChatMessage(
@@ -541,11 +558,12 @@ class AgentEventProcessor {
     final insertedId = await dbHelper.insertMessage(message, _groupId);
     message.id = insertedId;
     _assistantDraftStage = _AssistantDraftStage.response;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
 
     _assistantDraftStage = null;
-    _ref.read(runtimeAssistantDraftProvider.notifier).state = null;
-    _ref.read(chatSendStateProvider.notifier).update(
+    _ref.read(runtimeAssistantDraftForGroupProvider(_groupId).notifier).state =
+        null;
+    _ref.read(chatSendStateForGroupProvider(_groupId).notifier).update(
           isGenerating: false,
           phase: ChatSendPhase.idle,
         );
@@ -572,7 +590,7 @@ class AgentEventProcessor {
 
   bool _currentTurnHasVisibleRuntimePreviewResponse() {
     final responseText = _resolvePairedRuntimePreviewResponseText(
-      _ref.read(runtimeStreamingPreviewStateProvider),
+      _ref.read(runtimeStreamingPreviewForGroupProvider(_groupId)),
     );
     if (responseText == null) {
       return false;
@@ -621,7 +639,7 @@ class AgentEventProcessor {
         )) {
       final message = _toolUseReasoningMessage!;
       _ref
-          .read(messagesProvider.notifier)
+          .read(messagesForGroupProvider(_groupId).notifier)
           .appendReasoningToMessage(_toolUseReasoningMessageId!, content);
       await dbHelper.updateMessageReasoning(
         _toolUseReasoningMessageId!,
@@ -647,7 +665,7 @@ class AgentEventProcessor {
     message.id = id;
     _toolUseReasoningMessageId = id;
     _toolUseReasoningMessage = message;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _ref.read(messagesForGroupProvider(_groupId).notifier).addMessage(message);
   }
 
   bool _sameToolUseReasoningThread({

@@ -1021,8 +1021,7 @@ void main() {
   ) async {
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.awaitingConfirmation,
               isGenerating: false,
@@ -1049,8 +1048,7 @@ void main() {
       (tester) async {
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.preparing,
               isGenerating: false,
@@ -1079,8 +1077,7 @@ void main() {
     var cancelCount = 0;
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.preparing,
               isGenerating: false,
@@ -1114,8 +1111,7 @@ void main() {
       (tester) async {
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.executingTool,
               isGenerating: false,
@@ -1144,8 +1140,7 @@ void main() {
     var cancelCount = 0;
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.executingTool,
               isGenerating: false,
@@ -1181,8 +1176,7 @@ void main() {
     var cancelCount = 0;
     final container = ProviderContainer(
       overrides: [
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,

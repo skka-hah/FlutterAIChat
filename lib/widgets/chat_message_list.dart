@@ -937,7 +937,7 @@ class _ChatMessageListState extends ConsumerState<ChatMessageList> {
   }
 
   void _showMessageOptionMenu(ChatMessage message) {
-    final messagesNotifier = ref.read(messagesProvider.notifier);
+    final messagesNotifier = ref.read(selectedMessagesNotifierProvider);
 
     showCupertinoModalPopup(
       context: context,

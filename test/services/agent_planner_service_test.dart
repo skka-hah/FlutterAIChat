@@ -2255,7 +2255,6 @@ void main() {
         isA<StreamingContentBlockStartEvent>()
             .having((event) => event.messageId, 'messageId', 'runtime_turn'),
       );
-      expect(llm.listenerClearedAfterCall, isTrue);
     });
   });
 }
@@ -2452,8 +2451,7 @@ class _ThrowingNativePlannerLLM implements BaseLLM {
       'summary';
 }
 
-class _RuntimeStreamingDecisionLLM
-    implements BaseLLM, PlannerRuntimeStreamingCapable {
+class _RuntimeStreamingDecisionLLM implements BaseLLM {
   _RuntimeStreamingDecisionLLM({
     required this.decision,
     required this.runtimeEvents,
@@ -2461,8 +2459,6 @@ class _RuntimeStreamingDecisionLLM
 
   final ModelTurnDecision decision;
   final List<StreamingMessageEvent> runtimeEvents;
-  PlannerRuntimeStreamListener? _listener;
-  bool listenerClearedAfterCall = false;
 
   @override
   Map<String, dynamic> get config => const {};
@@ -2480,19 +2476,9 @@ class _RuntimeStreamingDecisionLLM
     void Function(LlmRetryProgress progress)? onRetryScheduled,
   }) async {
     for (final event in runtimeEvents) {
-      _listener?.call(event);
+      config.onPlannerRuntimeStream?.call(event);
     }
     return decision;
-  }
-
-  @override
-  void setPlannerRuntimeStreamListener(
-    PlannerRuntimeStreamListener? listener,
-  ) {
-    _listener = listener;
-    if (listener == null) {
-      listenerClearedAfterCall = true;
-    }
   }
 
   @override

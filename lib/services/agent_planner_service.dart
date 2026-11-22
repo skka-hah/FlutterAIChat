@@ -101,16 +101,6 @@ class AgentPlannerService {
       visibleToolAccess,
       locale: config.promptLocale,
     );
-    final plannerConfig = ChatConfig(
-      systemPrompt: _promptBuilder.buildSystemPrompt(
-        stage: PromptStage.planner,
-        locale: config.promptLocale,
-        userSystemPrompt: _resolveUserSystemPrompt(config),
-      ),
-      userSystemPrompt: _resolveUserSystemPrompt(config),
-      promptLocale: config.promptLocale,
-      runtimeConfigOverride: config.runtimeConfigOverride,
-    );
     final runtimeStreamTraceId = streamingTraceIdForTurn(turn.id!);
     final plannerRequestId = _buildPlannerRequestId(turn);
     _emitPlannerRequestTrace(
@@ -137,21 +127,32 @@ class AgentPlannerService {
                     ),
                   );
                 }
-                if (_onPlannerRuntimeStream != null) {
+                if (_onPlannerRuntimeStream != null &&
+                    config.run?.isCancellationRequested != true) {
                   _onPlannerRuntimeStream!(
                     event.copyWithMergedRuntimeMetadata({
                       'streamTraceId': runtimeStreamTraceId,
                       'streamTurnId': turn.id.toString(),
+                      'streamGroupId': turn.groupId,
+                      if (config.run != null) 'streamRunId': config.run!.runId,
                     }),
                   );
                 }
               };
 
+    final plannerConfig = ChatConfig(
+      systemPrompt: _promptBuilder.buildSystemPrompt(
+        stage: PromptStage.planner,
+        locale: config.promptLocale,
+        userSystemPrompt: _resolveUserSystemPrompt(config),
+      ),
+      userSystemPrompt: _resolveUserSystemPrompt(config),
+      promptLocale: config.promptLocale,
+      runtimeConfigOverride: config.runtimeConfigOverride,
+      onPlannerRuntimeStream: plannerRuntimeStreamListener,
+      run: config.run,
+    );
     try {
-      if (_llm is PlannerRuntimeStreamingCapable) {
-        (_llm as PlannerRuntimeStreamingCapable)
-            .setPlannerRuntimeStreamListener(plannerRuntimeStreamListener);
-      }
       Logger.d(
         _tag,
         'planner decision start turnId=${turn.id} iteration=${turn.iterationCount} toolCalls=${turn.toolCallCount} transcriptEvents=${transcript.length} stepCount=${steps.length} userInput=${_preview(turn.userInput)}',
@@ -162,7 +163,7 @@ class AgentPlannerService {
         currentTurnRunning: currentTurnRunning,
         config: plannerConfig,
         availableTools: plannerToolOptions,
-        onRetryScheduled: _onPlannerRetryScheduled,
+        onRetryScheduled: config.onPlannerRetryScheduled ?? _onPlannerRetryScheduled,
       );
       if (decision != null) {
         _emitPlannerRequestTrace(
@@ -211,11 +212,6 @@ class AgentPlannerService {
       );
       Logger.e(_tag, 'native planner decision stack trace', stackTrace);
       return _plannerRequestFailedDecision(detail: detail);
-    } finally {
-      if (_llm is PlannerRuntimeStreamingCapable) {
-        (_llm as PlannerRuntimeStreamingCapable)
-            .setPlannerRuntimeStreamListener(null);
-      }
     }
   }
 

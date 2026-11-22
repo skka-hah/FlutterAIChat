@@ -51,7 +51,7 @@ void main() {
       storage.insertedMessages.single.contentType,
       MessageContentType.contextBoundary,
     );
-    expect(container.read(messagesProvider), hasLength(1));
+    expect(container.read(messagesForGroupProvider(7)), hasLength(1));
   });
 
   test(
@@ -117,7 +117,7 @@ void main() {
     );
 
     final toolReasoningMessages = container
-        .read(messagesProvider)
+        .read(messagesForGroupProvider(7))
         .where(
             (message) => message.payloadJson?['reasoningScope'] == 'tool_use')
         .toList(growable: false);
@@ -223,7 +223,7 @@ void main() {
     );
     expect(storage.insertedAttachments.single.messageId, 1);
     expect(storage.insertedAttachments.single.attachments, hasLength(1));
-    expect(container.read(messagesProvider).single.attachments, hasLength(1));
+    expect(container.read(messagesForGroupProvider(7)).single.attachments, hasLength(1));
   });
 }
 

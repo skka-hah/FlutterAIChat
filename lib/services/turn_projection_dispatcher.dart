@@ -4,9 +4,9 @@ import 'package:ai_chat/models/chat_event.dart';
 import 'package:ai_chat/models/debug/streaming_trace_snapshot.dart';
 import 'package:ai_chat/models/llm/streaming_message_event.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
+import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/streaming_trace_providers.dart';
 import 'package:ai_chat/services/debug/streaming_trace_recorder.dart';
-import 'package:ai_chat/utils/logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Serializes runtime preview commits and truth-event commits for one active UI
@@ -16,15 +16,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// - preview deltas are published in arrival order
 /// - truth events are applied in arrival order
 class TurnProjectionDispatcher {
-  TurnProjectionDispatcher(this._ref);
-
-  static const _tag = 'TurnProjectionDispatcher';
+  TurnProjectionDispatcher(this._ref, this._groupId);
 
   final Ref _ref;
+  final int? _groupId;
   Future<void> _tail = Future<void>.value();
 
-  Future<void> dispatchPreviewEvent(StreamingMessageEvent event) {
+  Future<void> dispatchPreviewEvent(StreamingMessageEvent event, {int? runId}) {
     return _enqueue(() {
+      final groupId = _groupId;
+      if (runId != null &&
+          groupId != null &&
+          _ref.read(agentRunManagerProvider).mainTurnForGroup(groupId)?.runId !=
+              runId) {
+        return;
+      }
       final messageId = event.messageId;
       final traceId = _readRuntimeMetadataValue(
         event.runtimeMetadata,
@@ -46,7 +52,9 @@ class TurnProjectionDispatcher {
           },
         );
       }
-      _ref.read(runtimeStreamingPreviewStateProvider.notifier).publish(event);
+      _ref
+          .read(runtimeStreamingPreviewForGroupProvider(_groupId).notifier)
+          .publish(event);
     });
   }
 
@@ -156,16 +164,20 @@ class TurnProjectionDispatcher {
     }
   }
 
-  Future<void> clearRuntimePreview() {
+  Future<void> clearRuntimePreview({int? turnId}) {
     return _enqueue(() {
       final snapshot = _ref.read(streamingTraceSnapshotProvider);
       if (snapshot != null &&
+          (turnId == null ||
+              snapshot.traceId == streamingTraceIdForTurn(turnId)) &&
           snapshot.status == StreamingTraceLifecycleStatus.running) {
         _ref.read(streamingTraceRecorderProvider.notifier).markAborted(
               traceId: snapshot.traceId,
             );
       }
-      _ref.read(runtimeStreamingPreviewStateProvider.notifier).clear();
+      _ref
+          .read(runtimeStreamingPreviewForGroupProvider(_groupId).notifier)
+          .clear();
     });
   }
 

@@ -40,7 +40,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 1,
           text: '旧确认',
@@ -80,7 +80,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 1,
           text: '已运行',
@@ -109,7 +109,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 11,
           text: '旧问题',
@@ -171,7 +171,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '做个 artifact',
@@ -180,7 +180,7 @@ void main() {
       ]);
 
       final notifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       notifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_1'),
       );
@@ -220,7 +220,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         ChatMessage(
           id: 30,
           text: '做个 artifact',
@@ -229,7 +229,7 @@ void main() {
       ]);
 
       final notifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
       notifier.publish(
         const StreamingMessageStartEvent(
           messageId: 'preview_trace_1',
@@ -287,7 +287,7 @@ void main() {
       addTearDown(container.dispose);
 
       final notifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
 
       notifier.publish(
         const StreamingMessageStartEvent(messageId: 'preview_2'),
@@ -339,7 +339,7 @@ void main() {
       addTearDown(container.dispose);
 
       final notifier =
-          container.read(runtimeStreamingPreviewStateProvider.notifier);
+          container.read(selectedRuntimeStreamingPreviewNotifierProvider);
 
       notifier.publish(
         const StreamingMessageStartEvent(

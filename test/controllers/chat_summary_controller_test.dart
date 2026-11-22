@@ -107,7 +107,7 @@ void main() {
     final groupId = await storage.insertGroupTitle('新对话 1');
     container.read(currentGroupProvider.notifier).state =
         storage.currentGroup(groupId);
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 6; i += 1)
         ChatMessage(
           text: 'message-$i',

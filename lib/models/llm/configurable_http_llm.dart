@@ -45,11 +45,11 @@ import 'runtime/openai_responses_runtime.dart';
 import 'runtime/protocol_request_spec.dart';
 import 'runtime/protocol_runtime_registry.dart';
 
-class ConfigurableHttpLLM
-    implements
-        BaseLLM,
-        PlannerRuntimeStreamingCapable,
-        RuntimeConfigurableBaseLlm {
+class _PlannerRequestCancelled implements Exception {
+  const _PlannerRequestCancelled();
+}
+
+class ConfigurableHttpLLM implements BaseLLM, RuntimeConfigurableBaseLlm {
   static const String _tag = 'ConfigurableHttpLLM';
   // Architecture:
   // - docs/architecture/append-only-transcript.md
@@ -93,7 +93,6 @@ class ConfigurableHttpLLM
     Map<String, dynamic>? data,
   }) _traceEmitter;
   final Duration Function(int attempt) _retryDelayBuilder;
-  PlannerRuntimeStreamListener? _plannerRuntimeStreamListener;
 
   ConfigurableHttpLLM({
     required AppSettingsRepository settingsRepository,
@@ -161,13 +160,6 @@ class ConfigurableHttpLLM
           ],
           catalogSource: CatalogModelCapabilitySource(),
         );
-  }
-
-  @override
-  void setPlannerRuntimeStreamListener(
-    PlannerRuntimeStreamListener? listener,
-  ) {
-    _plannerRuntimeStreamListener = listener;
   }
 
   ApiStyleAdapter _adapterFor(ApiStyle apiStyle) {
@@ -398,6 +390,9 @@ class ConfigurableHttpLLM
           requestSpec: requestSpec,
           traceContext: traceContext,
           onRetryScheduled: onRetryScheduled,
+          onRuntimeStream: config.onPlannerRuntimeStream,
+          cancellation: config.run?.cancellationRequested,
+          isCancelled: () => config.run?.isCancellationRequested == true,
         );
         final streamedDecision = streamedResult.decision;
         if (streamedDecision == null) {
@@ -417,6 +412,8 @@ class ConfigurableHttpLLM
       final execution = await _performRetriableMainFlowRequest(
         label: 'native_planner',
         onRetryScheduled: onRetryScheduled,
+        cancellation: config.run?.cancellationRequested,
+        isCancelled: () => config.run?.isCancellationRequested == true,
         operation: () => _runtimeRegistry.runtimeFor(apiStyle).execute(
               requestSpec: requestSpec,
               runtimeConfig: runtimeConfig!,
@@ -468,6 +465,8 @@ class ConfigurableHttpLLM
         providerStyle: _toProviderStyle(apiStyle),
         modelName: modelName,
       );
+    } on _PlannerRequestCancelled {
+      return null;
     } catch (e, stackTrace) {
       Logger.w(
         _tag,
@@ -497,6 +496,9 @@ class ConfigurableHttpLLM
     required ProtocolRequestSpec requestSpec,
     required _RequestTraceContext traceContext,
     void Function(LlmRetryProgress progress)? onRetryScheduled,
+    PlannerRuntimeStreamListener? onRuntimeStream,
+    Future<void>? cancellation,
+    bool Function()? isCancelled,
   }) async {
     final streamingPayload = _requestSpecToJsonMap(requestSpec);
     _emitRequestStart(traceContext, streamingPayload);
@@ -507,11 +509,15 @@ class ConfigurableHttpLLM
     return _performRetriableMainFlowRequest(
       label: 'native_planner',
       onRetryScheduled: onRetryScheduled,
+      cancellation: cancellation,
+      isCancelled: isCancelled,
       operation: () => _runStreamingPlannerAttempt(
         runtimeConfig: runtimeConfig,
         apiStyle: apiStyle,
         requestSpec: requestSpec,
         traceContext: traceContext,
+        onRuntimeStream: onRuntimeStream,
+        cancellation: cancellation,
       ),
     );
   }
@@ -521,6 +527,8 @@ class ConfigurableHttpLLM
     required ApiStyle apiStyle,
     required ProtocolRequestSpec requestSpec,
     required _RequestTraceContext traceContext,
+    required PlannerRuntimeStreamListener? onRuntimeStream,
+    required Future<void>? cancellation,
   }) async {
     final execution = await _runtimeRegistry.runtimeFor(apiStyle).streamExecute(
           requestSpec: requestSpec,
@@ -560,6 +568,7 @@ class ConfigurableHttpLLM
     LlmCacheUsage? streamUsage;
     await _consumePlannerStreamWithTimeouts(
       events: execution.events,
+      cancellation: cancellation,
       accumulator: accumulator,
       onFirstChunk: () {
         firstChunkAt ??= DateTime.now();
@@ -570,7 +579,7 @@ class ConfigurableHttpLLM
         );
       },
       onEvent: (event) {
-        _plannerRuntimeStreamListener?.call(event);
+        onRuntimeStream?.call(event);
         final metadata = event.providerMetadata;
         if (metadata != null && metadata.containsKey('_usage')) {
           final usageMap = metadata['_usage'] as Map<String, dynamic>?;
@@ -636,6 +645,7 @@ class ConfigurableHttpLLM
   Future<void> _consumePlannerStreamWithTimeouts({
     required Stream<StreamingMessageEvent> events,
     required StreamingDecisionAccumulator accumulator,
+    Future<void>? cancellation,
     void Function()? onFirstChunk,
     void Function(StreamingMessageEvent)? onEvent,
   }) {
@@ -679,7 +689,7 @@ class ConfigurableHttpLLM
 
     return (() async {
       var firstChunkEmitted = false;
-      await for (final event in events.timeout(
+      final eventsWithTimeout = events.timeout(
         _plannerStreamIdleTimeout,
         onTimeout: (sink) {
           Logger.temp(
@@ -704,26 +714,37 @@ class ConfigurableHttpLLM
             ),
           );
         },
-      )) {
-        if (!firstChunkEmitted) {
-          firstChunkEmitted = true;
-          onFirstChunk?.call();
-          Logger.temp(
-            _tag,
-            'planner stream first chunk',
-            reason: 'diagnose create_artifact timeout on device',
-            data: {
-              'elapsedMs': DateTime.now().difference(startedAt).inMilliseconds,
-            },
-          );
+      );
+      final iterator = StreamIterator(eventsWithTimeout);
+      try {
+        while (await (cancellation == null
+            ? iterator.moveNext()
+            : Future.any(
+                [iterator.moveNext(), cancellation.then((_) => false)]))) {
+          final event = iterator.current;
+          if (!firstChunkEmitted) {
+            firstChunkEmitted = true;
+            onFirstChunk?.call();
+            Logger.temp(
+              _tag,
+              'planner stream first chunk',
+              reason: 'diagnose create_artifact timeout on device',
+              data: {
+                'elapsedMs':
+                    DateTime.now().difference(startedAt).inMilliseconds,
+              },
+            );
+          }
+          chunkCount += 1;
+          lastChunkAt = DateTime.now();
+          onEvent?.call(event);
+          accumulator.consume(event);
+          if (chunkCount <= 3 || chunkCount % 20 == 0) {
+            logChunkProgress('progress');
+          }
         }
-        chunkCount += 1;
-        lastChunkAt = DateTime.now();
-        onEvent?.call(event);
-        accumulator.consume(event);
-        if (chunkCount <= 3 || chunkCount % 20 == 0) {
-          logChunkProgress('progress');
-        }
+      } finally {
+        await iterator.cancel();
       }
       logChunkProgress('completed');
     }())
@@ -843,7 +864,8 @@ class ConfigurableHttpLLM
   }
 
   Future<LLMConfig> _resolveRuntimeConfigFor(ChatConfig config) async {
-    return config.runtimeConfigOverride ?? await _settingsRepository.getLlmConfig();
+    return config.runtimeConfigOverride ??
+        await _settingsRepository.getLlmConfig();
   }
 
   Future<LLMConfig> _resolveSideRuntimeConfigFor(ChatConfig config) async {
@@ -1153,6 +1175,8 @@ class ConfigurableHttpLLM
     required String label,
     required Future<T> Function() operation,
     void Function(LlmRetryProgress progress)? onRetryScheduled,
+    Future<void>? cancellation,
+    bool Function()? isCancelled,
   }) async {
     Object? lastError;
     StackTrace? lastStackTrace;
@@ -1161,6 +1185,7 @@ class ConfigurableHttpLLM
         attempt <= _mainFlowNetworkRetryAttempts;
         attempt += 1) {
       try {
+        if (isCancelled?.call() == true) throw const _PlannerRequestCancelled();
         if (attempt > 1) {
           Logger.i(
             _tag,
@@ -1191,7 +1216,12 @@ class ConfigurableHttpLLM
             error: error,
           ),
         );
-        await Future<void>.delayed(delay);
+        final pause = Future<void>.delayed(delay);
+        if (cancellation == null) {
+          await pause;
+        } else {
+          await Future.any([pause, cancellation]);
+        }
       }
     }
 

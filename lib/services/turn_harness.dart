@@ -246,11 +246,13 @@ class TurnHarness {
     final controller = StreamController<ChatEvent>();
     unawaited(() async {
       try {
+        final currentTurnEvents = await _eventRepository.listEventsByTurn(turnId);
+        if (config.run?.isCancellationRequested == true) return;
         final execution = await _toolCallService.executeToolInvocation(
           groupId: currentTurn.groupId,
           invocation: invocation,
           trustTool: trustTool,
-          currentTurnEvents: await _eventRepository.listEventsByTurn(turnId),
+          currentTurnEvents: currentTurnEvents,
           sideRuntimeConfigOverride: config.sideRuntimeConfigOverride,
           onExecutionStarted: (
               {required invocation, required toolAccess}) async {
@@ -366,8 +368,9 @@ class TurnHarness {
     final turnId = turn.id!;
     var failures = consecutiveFailures;
 
-    while (true) {
+    while (config.run?.isCancellationRequested != true) {
       final currentTurn = await _turnRepository.getTurn(turnId) ?? turn;
+      if (currentTurn.status != ChatTurnStatus.running) return;
       final maxToolCallsPerTurn = _limits.maxToolCallsPerTurn;
       if (maxToolCallsPerTurn != null &&
           currentTurn.toolCallCount >= maxToolCallsPerTurn) {
@@ -466,6 +469,7 @@ class TurnHarness {
           'Group ${currentTurn.groupId} not found while planning turn $turnId',
         );
       }
+      if (config.run?.isCancellationRequested == true) return;
       final decision = await _plannerService.planNextDecision(
             turn: currentTurn,
             transcript: transcript,
@@ -484,6 +488,7 @@ class TurnHarness {
             providerState: {},
             isTerminal: true,
           );
+      if (config.run?.isCancellationRequested == true) return;
       Logger.trace(
         _tag,
         'planner.done',
@@ -573,6 +578,7 @@ class TurnHarness {
                       status: ChatTurnStepStatus.planned,
                     ),
                   );
+        if (config.run?.isCancellationRequested == true) return;
         await for (final update
             in _decisionToolCallExecutor.executeDecisionToolCalls(
           turn: runtimeTurn,
@@ -614,6 +620,7 @@ class TurnHarness {
         continue;
       }
 
+      if (config.run?.isCancellationRequested == true) return;
       if (decision.isTerminal &&
           (decision.assistantMessage ?? '').trim().isNotEmpty) {
         final reasoningEvent = await _appendVisibleReasoningIfPresent(
@@ -676,6 +683,7 @@ class TurnHarness {
           latestAssistantText: latestAssistantText,
           limits: _limits,
         );
+        if (config.run?.isCancellationRequested == true) return;
 
         if (verifyResult.canStop) {
           Logger.trace(
@@ -836,6 +844,7 @@ class TurnHarness {
         providerStateJson: _buildContinuationProviderState(turn),
       ),
     );
+    config.run?.bindContinuation(previousTurnId: turn.id!, turnId: continuationTurnId);
     final continuationTurn = await _requireTurn(continuationTurnId);
     Logger.i(
       _tag,

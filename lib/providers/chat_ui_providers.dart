@@ -165,19 +165,40 @@ final activeSendCancellationProvider =
     StateProvider<Future<void> Function()?>((ref) => null);
 
 /// Runtime-only assistant draft that belongs to the active turn/stage.
-final runtimeAssistantDraftProvider =
-    StateProvider<RuntimeAssistantDraft?>((ref) => null);
+final runtimeAssistantDraftProvider = Provider<RuntimeAssistantDraft?>((ref) {
+  return ref.watch(runtimeAssistantDraftForGroupProvider(
+      ref.watch(currentGroupProvider)?.id));
+});
+
+/// A reasoning draft follows its conversation while selection changes.
+final runtimeAssistantDraftForGroupProvider =
+    StateProvider.family<RuntimeAssistantDraft?, int?>((ref, groupId) => null);
 
 /// Runtime-only structured preview state used by projection/UI consumers.
-final runtimeStreamingPreviewStateProvider = StateNotifierProvider<
-    RuntimeStreamingPreviewController, RuntimeStreamingPreviewState>((ref) {
+final runtimeStreamingPreviewForGroupProvider = StateNotifierProvider.family<
+    RuntimeStreamingPreviewController,
+    RuntimeStreamingPreviewState,
+    int?>((ref, groupId) {
   return RuntimeStreamingPreviewController(ref);
+});
+
+final runtimeStreamingPreviewStateProvider =
+    Provider<RuntimeStreamingPreviewState>((ref) {
+  return ref.watch(runtimeStreamingPreviewForGroupProvider(
+      ref.watch(currentGroupProvider)?.id));
+});
+
+final selectedRuntimeStreamingPreviewNotifierProvider =
+    Provider<RuntimeStreamingPreviewController>((ref) {
+  return ref.watch(runtimeStreamingPreviewForGroupProvider(
+          ref.watch(currentGroupProvider)?.id)
+      .notifier);
 });
 
 /// Shared serialized commit pipeline for runtime preview and truth events.
 final turnProjectionDispatcherProvider =
-    Provider<TurnProjectionDispatcher>((ref) {
-  return TurnProjectionDispatcher(ref);
+    Provider.family<TurnProjectionDispatcher, int?>((ref, groupId) {
+  return TurnProjectionDispatcher(ref, groupId);
 });
 
 /// Pair of the message that currently owns the confirmation step and the

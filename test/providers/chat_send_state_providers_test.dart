@@ -16,7 +16,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      container.read(chatSendStateProvider.notifier).update(
+      container.read(selectedChatSendNotifierProvider).update(
             phase: ChatSendPhase.streamingResponse,
             isGenerating: true,
           );
@@ -30,7 +30,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      final notifier = container.read(chatSendStateProvider.notifier);
+      final notifier = container.read(selectedChatSendNotifierProvider);
       notifier.update(
         phase: ChatSendPhase.preparing,
         isGenerating: false,

@@ -93,12 +93,12 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(chatSendStateProvider.notifier).update(
+    container.read(selectedChatSendNotifierProvider).update(
           phase: ChatSendPhase.streamingResponse,
           isGenerating: true,
         );
     container.read(streamSubscriptionProvider.notifier).state = subscription;
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: 'partial answer',
@@ -279,7 +279,7 @@ void main() {
       title: 'group',
     );
     container.read(hasMoreMessagesProvider.notifier).state = true;
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 2,
         text: 'Newer message 1',
@@ -328,7 +328,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: 'Previous group message',
@@ -353,6 +353,102 @@ void main() {
       container.read(messagesProvider).map((message) => message.text).toList(),
       ['Next group message'],
     );
+  });
+
+  test('late runtime for A leaves selected group B configured', () async {
+    final lateRuntime = Completer<SessionRuntimeConfig?>();
+    final storage = _FakeChatStorage(
+      sessionRuntimeConfig: _testRuntime(2),
+      readRuntime: lateRuntime.future,
+    );
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWithValue(storage),
+    ]);
+    addTearDown(container.dispose);
+    final coordinator = container.read(chatSessionCoordinatorProvider);
+
+    final first = coordinator.selectGroup(ChatGroup(id: 1, title: 'A'));
+    await coordinator.selectGroup(ChatGroup(id: 2, title: 'B'));
+    lateRuntime.complete(_testRuntime(1));
+    await first;
+
+    expect(container.read(currentGroupProvider)?.id, 2);
+    expect(container.read(currentSessionRuntimeConfigProvider)?.groupId, 2);
+  });
+
+  test('returning to A discards history from the first visit to A', () async {
+    final firstRead = Completer<List<ChatMessage>>();
+    final firstReadStarted = Completer<void>();
+    final storage = _FakeChatStorage(
+      messagesByGroup: {
+        1: [_testMessage(3, 'new A')]
+      },
+      groupMessageCount: 1,
+      readFirstHistory: () {
+        firstReadStarted.complete();
+        return firstRead.future;
+      },
+    );
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWithValue(storage),
+    ]);
+    addTearDown(container.dispose);
+    final coordinator = container.read(chatSessionCoordinatorProvider);
+    final a = ChatGroup(id: 1, title: 'A');
+    final first = coordinator.selectGroup(a);
+    await firstReadStarted.future;
+    await coordinator.selectGroup(ChatGroup(id: 2, title: 'B'));
+    await coordinator.selectGroup(a);
+
+    firstRead.complete([_testMessage(1, 'old A')]);
+    await first;
+    expect(container.read(messagesProvider).single.text, 'new A');
+  });
+
+  test('late pagination from A leaves B messages and pagination intact',
+      () async {
+    final aPage = Completer<List<ChatMessage>>();
+    final bPage = Completer<List<ChatMessage>>();
+    final aStarted = Completer<void>();
+    final bStarted = Completer<void>();
+    final storage = _FakeChatStorage(
+      messagesByGroup: {
+        2: [_testMessage(3, 'B')]
+      },
+      groupMessageCount: 2,
+      readPage: (groupId) {
+        if (groupId == 1) {
+          aStarted.complete();
+          return aPage.future;
+        }
+        bStarted.complete();
+        return bPage.future;
+      },
+    );
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWithValue(storage),
+    ]);
+    addTearDown(container.dispose);
+    final coordinator = container.read(chatSessionCoordinatorProvider);
+    await coordinator.selectGroup(ChatGroup(id: 1, title: 'A'));
+    final first = coordinator.loadMoreMessages();
+    await aStarted.future;
+    await coordinator.selectGroup(ChatGroup(id: 2, title: 'B'));
+    final second = coordinator.loadMoreMessages();
+    await bStarted.future;
+
+    aPage.complete([_testMessage(1, 'A')]);
+    await first;
+    expect(container.read(messagesProvider).single.text, 'B');
+    expect(container.read(isLoadingMoreProvider), isTrue);
+
+    bPage.complete([_testMessage(2, 'older B')]);
+    await second;
+    expect(container.read(messagesProvider).map((message) => message.text), [
+      'older B',
+      'B',
+    ]);
+    expect(container.read(isLoadingMoreProvider), isFalse);
   });
 
   test('database stores and loads message attachments', () async {
@@ -697,18 +793,39 @@ class _NoopSessionContextSnapshotRepository
   _NoopSessionContextSnapshotRepository() : super(_FakeChatStorage());
 }
 
+ChatMessage _testMessage(int id, String text) => ChatMessage(
+      id: id,
+      text: text,
+      role: MessageRole.user,
+      timestamp: DateTime(2026, 11, 22, id),
+    );
+
+SessionRuntimeConfig _testRuntime(int groupId) => SessionRuntimeConfig(
+      groupId: groupId,
+      providerId: 'test-provider',
+      modelId: 'model-$groupId',
+      providerStyle: ChatTurnProviderStyle.openaiChatCompletions,
+    );
+
 class _FakeChatStorage implements ChatStorage {
   _FakeChatStorage({
     this.messagesByGroup = const {},
     this.paginatedMessages = const [],
     this.groupMessageCount = 0,
     this.sessionRuntimeConfig,
+    this.readRuntime,
+    this.readFirstHistory,
+    this.readPage,
   });
 
   final Map<int, List<ChatMessage>> messagesByGroup;
   final List<ChatMessage> paginatedMessages;
   final int groupMessageCount;
   SessionRuntimeConfig? sessionRuntimeConfig;
+  final Future<SessionRuntimeConfig?>? readRuntime;
+  final Future<List<ChatMessage>> Function()? readFirstHistory;
+  final Future<List<ChatMessage>> Function(int groupId)? readPage;
+  bool _didReadFirstHistory = false;
 
   @override
   Future<int> insertOrReplaceArtifactRecord(ArtifactRecord record) async => 1;
@@ -771,16 +888,23 @@ class _FakeChatStorage implements ChatStorage {
       null;
 
   @override
-  Future<List<ChatMessage>> getMessagesByGroup(int groupId) async =>
-      messagesByGroup[groupId] ?? const [];
+  Future<List<ChatMessage>> getMessagesByGroup(int groupId) async {
+    if (!_didReadFirstHistory && readFirstHistory != null) {
+      _didReadFirstHistory = true;
+      return readFirstHistory!();
+    }
+    return messagesByGroup[groupId] ?? const [];
+  }
 
   @override
   Future<List<ChatMessage>> getMessagesByGroupWithPagination({
     required int groupId,
     required int limit,
     required int offset,
-  }) async =>
-      paginatedMessages;
+  }) async {
+    final read = readPage;
+    return read == null ? paginatedMessages : await read(groupId);
+  }
 
   @override
   Future<ChatTurn?> getTurn(int id) async => null;
@@ -847,6 +971,7 @@ class _FakeChatStorage implements ChatStorage {
   Future<SessionRuntimeConfig?> getSessionRuntimeConfigByGroup(
     int groupId,
   ) async {
+    if (groupId == 1 && readRuntime != null) return readRuntime;
     final config = sessionRuntimeConfig;
     if (config?.groupId != groupId) {
       return null;

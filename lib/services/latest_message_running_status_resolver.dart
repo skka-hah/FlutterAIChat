@@ -38,6 +38,8 @@ class LatestMessageRunningStatusResolver {
     switch (sendPhase) {
       case ChatSendPhase.idle:
         return null;
+      case ChatSendPhase.queued:
+        return const LatestMessageRunningStatusPresentation(text: '等待执行额度');
       case ChatSendPhase.preparing:
         final override = statusTextOverride?.trim();
         if (override != null && override.isNotEmpty) {

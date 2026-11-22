@@ -16,7 +16,6 @@ import 'package:ai_chat/models/skill/invoked_skill_context.dart';
 import 'package:ai_chat/models/trace/chat_trace_event.dart';
 import 'package:ai_chat/models/tool/tool_invocation.dart';
 import 'package:ai_chat/models/llm/base_llm.dart';
-import 'package:ai_chat/models/llm/api_protocol_resolver.dart';
 import 'package:ai_chat/models/llm/llm_config.dart';
 import 'package:ai_chat/providers/chat_collection_providers.dart';
 import 'package:ai_chat/providers/chat_dependency_providers.dart';
@@ -25,9 +24,9 @@ import 'package:ai_chat/providers/chat_ui_providers.dart';
 import 'package:ai_chat/providers/streaming_trace_providers.dart';
 import 'package:ai_chat/repositories/chat_turn_repository.dart';
 import 'package:ai_chat/services/chat_service.dart';
+import 'package:ai_chat/services/agent_run_manager.dart';
 import 'package:ai_chat/services/chat_trace_recorder.dart';
 import 'package:ai_chat/services/debug/streaming_trace_recorder.dart';
-import 'package:ai_chat/services/follow_up_dispatch_queue.dart';
 import 'package:ai_chat/services/agent_planner_service.dart'
     show PlannerRequestTraceEvent, PlannerRequestTraceStage;
 import 'package:ai_chat/services/session_runtime_marker_service.dart';
@@ -74,6 +73,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   static const String _tag = 'ChatSendCoordinator';
 
   final Ref _ref;
+  final _draftFollowUps = <ChatGroup, List<SendMessageRequest>>{};
+  final _interactionClaims = <int>{};
+
+  AgentRunManager get _runs => _ref.read(agentRunManagerProvider);
+  ChatSendStateNotifier _sendState(int? groupId) =>
+      _ref.read(chatSendStateForGroupProvider(groupId).notifier);
+  MessagesNotifier _messages(int groupId) =>
+      _ref.read(messagesForGroupProvider(groupId).notifier);
 
   DefaultChatSendCoordinator(this._ref);
 
@@ -162,6 +169,123 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required VoidCallback scheduleAutoSummary,
     required VoidCallback cancelActiveStream,
   }) async {
+    var group = _ref.read(currentGroupProvider);
+    if (group == null) {
+      group = ChatGroup(
+          title: '新对话', systemPrompt: _ref.read(systemPromptProvider));
+      _ref.read(currentGroupProvider.notifier).state = group;
+    }
+    if (_flattenSendRequests(request).every(
+      (input) => input.text.trim().isEmpty && input.attachments.isEmpty,
+    )) {
+      return;
+    }
+    var runtime = _ref.read(currentSessionRuntimeConfigProvider);
+    final prompt = _ref.read(systemPromptProvider);
+    var groupId = group.id;
+    if (groupId == null) {
+      final pending = _draftFollowUps[group];
+      if (pending != null) {
+        pending.add(request);
+        return;
+      }
+      _draftFollowUps[group] = [];
+      _sendState(null).setPhase(ChatSendPhase.preparing);
+      try {
+        final db = _ref.read(databaseProvider);
+        final persisted = group.copyWith(title: request.text);
+        groupId = await db.insertGroup(persisted);
+        if (runtime != null) {
+          runtime = runtime.copyWith(groupId: groupId);
+          await db.insertSessionRuntimeConfig(runtime);
+        }
+        if (identical(_ref.read(currentGroupProvider), group)) {
+          _ref.read(currentSessionRuntimeConfigProvider.notifier).state =
+              runtime;
+          _ref.read(currentGroupProvider.notifier).state =
+              persisted.copyWith(id: groupId);
+        }
+        for (final followUp in _draftFollowUps[group]!) {
+          _ref
+              .read(followUpDispatchQueueProvider)
+              .enqueue(groupId: groupId, request: followUp);
+        }
+        unawaited(_loadGroups());
+      } finally {
+        _draftFollowUps.remove(group);
+        _sendState(null).setPhase(ChatSendPhase.idle);
+      }
+    }
+    await _dispatchToGroup(
+      request,
+      groupId: groupId,
+      runtime: runtime,
+      prompt: prompt,
+      scheduleAutoSummary: scheduleAutoSummary,
+    );
+  }
+
+  Future<void> _dispatchToGroup(
+    SendMessageRequest request, {
+    required int groupId,
+    required SessionRuntimeConfig? runtime,
+    required String? prompt,
+    required VoidCallback scheduleAutoSummary,
+  }) async {
+    final pending = _ref.read(followUpDispatchQueueProvider);
+    final state = _ref.read(chatSendStateForGroupProvider(groupId));
+    if (_interactionClaims.contains(groupId) ||
+        _runs.mainTurnForGroup(groupId) != null ||
+        state.phase != ChatSendPhase.idle) {
+      pending.enqueue(groupId: groupId, request: request);
+      return;
+    }
+    final run = _runs.start(
+        groupId: groupId,
+        execute: (run) async {
+          _sendState(groupId).setPhase(ChatSendPhase.preparing);
+          await _executeSend(request,
+              run: run,
+              runtime: runtime,
+              prompt: prompt,
+              scheduleAutoSummary: scheduleAutoSummary);
+          return _runOutcome(run);
+        })!;
+    _sendState(groupId).setPhase(ChatSendPhase.queued);
+    final outcome = await run.done;
+    if (outcome != AgentRunOutcome.suspended) {
+      _sendState(groupId)
+          .update(phase: ChatSendPhase.idle, isGenerating: false);
+      await _startQueuedNextTurnIfNeeded(
+        groupId: groupId,
+        runtime: runtime,
+        prompt: prompt,
+        scheduleAutoSummary: scheduleAutoSummary,
+      );
+    }
+  }
+
+  Future<AgentRunOutcome> _runOutcome(AgentRun run) async {
+    final turnId = run.turnId;
+    if (turnId == null) return AgentRunOutcome.completed;
+    final stored = await _ref.read(chatTurnRepositoryProvider).getTurn(turnId);
+    return switch (stored?.status) {
+      ChatTurnStatus.awaitingToolConfirmation ||
+      ChatTurnStatus.awaitingUserInteraction =>
+        AgentRunOutcome.suspended,
+      ChatTurnStatus.cancelled => AgentRunOutcome.cancelled,
+      _ => AgentRunOutcome.completed,
+    };
+  }
+
+  Future<void> _executeSend(
+    SendMessageRequest request, {
+    required AgentRun run,
+    required SessionRuntimeConfig? runtime,
+    required String? prompt,
+    required VoidCallback scheduleAutoSummary,
+  }) async {
+    final currentGroupId = run.groupId;
     Logger.i(
       _tag,
       'sendMessageRequest entered',
@@ -193,43 +317,10 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return;
     }
 
-    final pendingQueue = _ref.read(followUpDispatchQueueProvider);
-    final activeSendPhase = _ref.read(sendPhaseProvider);
-    if (activeSendPhase != ChatSendPhase.idle) {
-      pendingQueue.enqueue(
-        groupId: _ref.read(currentGroupProvider)?.id,
-        request: request,
-      );
-      Logger.runtime(
-        _tag,
-        'queued follow-up request while turn remains active',
-        data: {
-          'dispatchMode': request.dispatchMode.name,
-          'pendingCount': pendingQueue
-              .pendingCountForGroup(_ref.read(currentGroupProvider)?.id),
-        },
-      );
-      return;
-    }
-
-    var currentGroup = _ref.read(currentGroupProvider);
-    if (currentGroup == null) {
-      Logger.w(
-          _tag, 'current group missing before send, creating a draft group');
-      final systemPrompt = _ref.read(systemPromptProvider);
-      currentGroup = ChatGroup(
-        title: '新对话',
-        systemPrompt: systemPrompt,
-      );
-      _ref.read(currentGroupProvider.notifier).state = currentGroup;
-      _ref.read(messagesProvider.notifier).clearMessages();
-      _ref.read(hasMoreMessagesProvider.notifier).state = false;
-      _ref.read(isInitializingProvider.notifier).state = false;
-    }
     for (final outboundRequest in outboundRequests) {
       final imageSupportFailure = await _validateAttachmentSupport(
         attachments: outboundRequest.attachments,
-        currentGroup: currentGroup,
+        runtime: runtime,
         llm: _ref.read(chatServiceProvider).llm,
         allowUnsupportedImageInputAttempt:
             outboundRequest.allowUnsupportedImageInputAttempt,
@@ -240,35 +331,24 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
           'image support validation rejected request: $imageSupportFailure',
         );
         await _appendVisibleSendFailureMessage(
-          groupId: currentGroup.id,
+          groupId: currentGroupId,
           error: Exception(imageSupportFailure),
         );
-        _ref.read(chatSendStateProvider.notifier).update(
-              isGenerating: false,
-              phase: ChatSendPhase.idle,
-            );
+        _sendState(currentGroupId).update(
+          isGenerating: false,
+          phase: ChatSendPhase.idle,
+        );
         return;
       }
     }
-    var cancellationRequested = false;
-
-    Future<void> requestPreparingCancellation() async {
-      cancellationRequested = true;
+    if (_ref.read(currentGroupProvider)?.id == currentGroupId) {
+      _ref.read(focusNodeProvider).unfocus();
     }
-
-    _ref.read(focusNodeProvider).unfocus();
     Logger.d(
       _tag,
       '准备发送新消息: ${text.substring(0, text.length.clamp(0, 50))}...',
     );
 
-    cancelActiveStream();
-    _ref.read(activeSendCancellationProvider.notifier).state =
-        requestPreparingCancellation;
-    _ref.read(chatSendStateProvider.notifier).update(
-          phase: ChatSendPhase.preparing,
-          clearStatusText: true,
-        );
     final traceRecorder = _ref.read(traceRecorderProvider);
     final turnId = traceRecorder.newTurnId();
     traceRecorder.record(
@@ -277,54 +357,11 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       status: ChatTraceStatus.started,
       summary: '开始发送消息',
       data: {
-        'groupId': currentGroup.id,
+        'groupId': currentGroupId,
         'userMessagePreview': text.substring(0, text.length.clamp(0, 80)),
         'attachmentCount': attachments.length,
       },
     );
-
-    if (currentGroup.id == null) {
-      try {
-        final dbHelper = _ref.read(databaseProvider);
-        final newGroup = currentGroup.copyWith(title: text);
-        final groupId = await dbHelper.insertGroup(newGroup);
-        final currentRuntime = _ref.read(currentSessionRuntimeConfigProvider);
-        if (currentRuntime != null) {
-          final persistedRuntime = SessionRuntimeConfig(
-            groupId: groupId,
-            providerId: currentRuntime.providerId,
-            modelId: currentRuntime.modelId,
-            providerStyle: currentRuntime.providerStyle,
-          );
-          await dbHelper.insertSessionRuntimeConfig(persistedRuntime);
-          _ref.read(currentSessionRuntimeConfigProvider.notifier).state =
-              persistedRuntime;
-        }
-        Logger.runtime(
-          _tag,
-          'persisted draft group for send',
-          data: {
-            'groupId': groupId,
-            'groupTitle': newGroup.title,
-          },
-        );
-        _ref.read(currentGroupProvider.notifier).state =
-            newGroup.copyWith(id: groupId);
-        await _loadGroups();
-      } catch (e) {
-        Logger.e(_tag, '保存新分组失败', e);
-        traceRecorder.record(
-          turnId: turnId,
-          stage: ChatTraceStage.sendFailed,
-          status: ChatTraceStatus.failure,
-          summary: '保存新分组失败',
-          data: {
-            'error': e.toString(),
-          },
-        );
-        return;
-      }
-    }
 
     final explicitSkillParser = ExplicitSkillInvocationParser(
       skillRuntimeService: _ref.read(skillRuntimeServiceProvider),
@@ -358,9 +395,11 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
           userMessage: userMessage,
         ),
       );
-      _ref.read(pendingPinnedUserMessageStableKeyProvider.notifier).state =
-          'user-${userMessage.timestamp.microsecondsSinceEpoch}';
-      _ref.read(messagesProvider.notifier).addMessage(userMessage);
+      if (_ref.read(currentGroupProvider)?.id == currentGroupId) {
+        _ref.read(pendingPinnedUserMessageStableKeyProvider.notifier).state =
+            'user-${userMessage.timestamp.microsecondsSinceEpoch}';
+      }
+      _messages(currentGroupId).addMessage(userMessage);
       Logger.runtime(
         _tag,
         'user message added to in-memory timeline',
@@ -374,7 +413,6 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
 
     try {
       final dbHelper = _ref.read(databaseProvider);
-      final currentGroupId = _ref.read(currentGroupProvider)!.id!;
       final runtimeMarkerService =
           _ref.read(sessionRuntimeMarkerServiceProvider);
       final runtimeMarkerPreparation =
@@ -431,15 +469,15 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         }
       }
 
-      if (cancellationRequested) {
+      if (run.isCancellationRequested) {
         await _projectCancelledTurnOutcome(
           groupId: currentGroupId,
           assistantMessageId: null,
         );
-        _ref.read(chatSendStateProvider.notifier).update(
-              isGenerating: false,
-              phase: ChatSendPhase.idle,
-            );
+        _sendState(currentGroupId).update(
+          isGenerating: false,
+          phase: ChatSendPhase.idle,
+        );
         return;
       }
 
@@ -457,9 +495,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         runtimeMarkerService: runtimeMarkerService,
         explicitInvokedSkill: explicitInvokedSkill,
         scheduleAutoSummary: scheduleAutoSummary,
-        cancelActiveStream: cancelActiveStream,
+        run: run,
+        runtime: runtime,
+        prompt: prompt,
       );
-      await _recordRuntimeImageInputSupportSuccessIfNeeded(attachments);
+      if (!run.isCancellationRequested) {
+        await _recordRuntimeImageInputSupportSuccessIfNeeded(
+            attachments, runtime);
+      }
     } catch (e, stackTrace) {
       final handledFailure = e is _HandledSendFailure ? e : null;
       final rawError = handledFailure?.error ?? e;
@@ -476,21 +519,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       );
       if (handledFailure == null) {
         await _appendVisibleSendFailureMessage(
-          groupId: _ref.read(currentGroupProvider)?.id,
+          groupId: currentGroupId,
           error: rawError,
         );
       }
-      _ref.read(chatSendStateProvider.notifier).update(
-            isGenerating: false,
-            phase: ChatSendPhase.idle,
-          );
-    } finally {
-      if (identical(
-        _ref.read(activeSendCancellationProvider),
-        requestPreparingCancellation,
-      )) {
-        _ref.read(activeSendCancellationProvider.notifier).state = null;
-      }
+      _sendState(currentGroupId).update(
+        isGenerating: false,
+        phase: ChatSendPhase.idle,
+      );
     }
   }
 
@@ -504,18 +540,19 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required SessionRuntimeMarkerService runtimeMarkerService,
     required InvokedSkillContext? explicitInvokedSkill,
     required VoidCallback scheduleAutoSummary,
-    required VoidCallback cancelActiveStream,
+    required AgentRun run,
+    required SessionRuntimeConfig? runtime,
+    required String? prompt,
   }) async {
     final dbHelper = _ref.read(databaseProvider);
     final traceRecorder = _ref.read(traceRecorderProvider);
     final turnRepository = ChatTurnRepository(dbHelper);
-    final runtimeConfig = _ref.read(currentSessionRuntimeConfigProvider);
     final createdTurn = ChatTurn(
       groupId: currentGroupId,
       status: ChatTurnStatus.running,
       userInput: text,
-      providerStyle: runtimeConfig?.providerStyle,
-      modelName: runtimeConfig?.modelId,
+      providerStyle: runtime?.providerStyle,
+      modelName: runtime?.modelId,
       providerStateJson: _buildTurnRuntimeContext(
         runtimeMarkerService: runtimeMarkerService,
         runtimeMarkerPreparation: runtimeMarkerPreparation,
@@ -525,6 +562,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       ),
     );
     final turnRecordId = await turnRepository.createTurn(createdTurn);
+    run.bindTurn(turnRecordId);
     final persistedTurn = createdTurn.copyWith(id: turnRecordId);
     _ref.read(streamingTraceRecorderProvider.notifier).recordStage(
       traceId: streamingTraceIdForTurn(turnRecordId),
@@ -539,13 +577,15 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       groupId: currentGroupId,
       currentDate: runtimeMarkerPreparation.currentDate,
     );
-    final config = await _buildChatConfig();
+    final config =
+        await _buildChatConfig(runtime: runtime, prompt: prompt, run: run);
 
     final processor = AgentEventProcessor(
       ref: _ref,
       groupId: currentGroupId,
       traceTurnId: turnId,
       agentTurnId: turnRecordId,
+      run: run,
       hooks: AgentEventHooks(
         onAssistantToolConfirmation: (event) {
           traceRecorder.record(
@@ -569,12 +609,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
               'turnRecordId': turnRecordId,
             },
           );
-          scheduleAutoSummary();
+          if (_ref.read(currentGroupProvider)?.id == currentGroupId) {
+            scheduleAutoSummary();
+          }
         },
       ),
     );
-    Future<void> Function()? registeredCancelActiveSend;
     await _runAgentEventStream(
+      run: run,
       stream: harness.runTurn(
         turn: persistedTurn,
         config: config,
@@ -595,49 +637,20 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
           assistantMessageId: processor.assistantMessageId,
           rawError: error,
         );
-        _ref.read(chatSendStateProvider.notifier).update(
-              isGenerating: false,
-              phase: ChatSendPhase.idle,
-            );
+        _sendState(currentGroupId).update(
+          isGenerating: false,
+          phase: ChatSendPhase.idle,
+        );
         if (!completion.isCompleted) {
           completion.completeError(_HandledSendFailure(error), stackTrace);
         }
       },
-      onCompletionCreated: (completion) async {
-        Future<void> cancelActiveSend() async {
-          if (!completion.isCompleted) {
-            await turnRepository.markCancelled(
-              turnRecordId,
-              stopReason: 'cancelled_by_user',
-            );
-            await _projectCancelledTurnOutcome(
-              groupId: currentGroupId,
-              assistantMessageId: processor.assistantMessageId,
-            );
-            completion.complete();
-          }
-        }
-
-        registeredCancelActiveSend = cancelActiveSend;
-        _ref.read(activeSendCancellationProvider.notifier).state =
-            cancelActiveSend;
-      },
       onSuccess: () async {
         await _finalizeTurnOutcome(
           groupId: currentGroupId,
-          turnId: turnRecordId,
+          turnId: run.turnId!,
           processor: processor,
-          scheduleAutoSummary: scheduleAutoSummary,
-          cancelActiveStream: cancelActiveStream,
         );
-      },
-      onFinally: () async {
-        if (identical(
-          _ref.read(activeSendCancellationProvider),
-          registeredCancelActiveSend,
-        )) {
-          _ref.read(activeSendCancellationProvider.notifier).state = null;
-        }
       },
     );
   }
@@ -727,6 +740,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   }
 
   Future<void> _runAgentEventStream({
+    required AgentRun run,
     required Stream<ChatEvent> stream,
     required AgentEventProcessor processor,
     required void Function(
@@ -735,12 +749,14 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       Completer<void> completion,
     ) onError,
     required Future<void> Function() onSuccess,
-    Future<void> Function(Completer<void> completion)? onCompletionCreated,
-    Future<void> Function()? onFinally,
   }) async {
     final completion = Completer<void>();
     final subscription = stream.asyncMap((event) async {
-      await processor.handle(event);
+      if (!run.isCancellationRequested ||
+          event.eventType == ChatEventType.toolResult ||
+          event.eventType == ChatEventType.toolError) {
+        await processor.handle(event);
+      }
     }).listen(
       (_) {},
       onError: (error, stackTrace) {
@@ -755,28 +771,37 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       cancelOnError: true,
     );
 
-    _ref.read(streamSubscriptionProvider.notifier).state = subscription;
-    if (onCompletionCreated != null) {
-      await onCompletionCreated(completion);
-    }
     try {
       await completion.future;
+      final turnId = run.turnId;
+      if (run.isCancellationRequested &&
+          turnId != null &&
+          !processor.receivedFinalAnswer) {
+        final repository = _ref.read(chatTurnRepositoryProvider);
+        final stored = await repository.getTurn(turnId);
+        if (stored?.status != ChatTurnStatus.failed) {
+          await repository.markCancelled(turnId,
+              stopReason: 'cancelled_by_user');
+          await _projectCancelledTurnOutcome(
+              groupId: run.groupId,
+              assistantMessageId: processor.assistantMessageId);
+        }
+      }
       await onSuccess();
     } finally {
+      await subscription.cancel();
       await processor.dispose();
-      if (identical(_ref.read(streamSubscriptionProvider), subscription)) {
-        _ref.read(streamSubscriptionProvider.notifier).state = null;
-      }
-      if (onFinally != null) {
-        await onFinally();
-      }
     }
   }
 
-  Future<ChatConfig> _buildChatConfig() async {
+  Future<ChatConfig> _buildChatConfig({
+    required SessionRuntimeConfig? runtime,
+    required String? prompt,
+    required AgentRun run,
+  }) async {
     LLMConfig? runtimeConfigOverride;
     LLMConfig? sideRuntimeConfigOverride;
-    final runtimeConfig = _ref.read(currentSessionRuntimeConfigProvider);
+    final runtimeConfig = runtime;
     if (runtimeConfig != null) {
       final resolver = _ref.read(sessionLlmConfigResolverProvider);
       runtimeConfigOverride = await resolver.resolve(runtimeConfig);
@@ -787,9 +812,17 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     }
     return ChatConfig(
       systemPrompt: '',
-      userSystemPrompt: _ref.read(systemPromptProvider) ?? '',
+      userSystemPrompt: prompt ?? '',
       runtimeConfigOverride: runtimeConfigOverride,
       sideRuntimeConfigOverride: sideRuntimeConfigOverride,
+      run: run,
+      onPlannerRetryScheduled: (progress) {
+        if (run.isCancellationRequested) return;
+        final reason = progress.error is TimeoutException ? '请求超时' : '请求失败';
+        _sendState(run.groupId).setStatusText(
+          '$reason，正在重试 ${progress.attempt}/${progress.maxAttempts}',
+        );
+      },
     );
   }
 
@@ -797,24 +830,22 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required int groupId,
     required int turnId,
     required AgentEventProcessor processor,
-    VoidCallback? scheduleAutoSummary,
-    VoidCallback? cancelActiveStream,
   }) async {
     if (processor.hasPendingConfirmation) {
-      _ref.read(chatSendStateProvider.notifier).update(
-            isGenerating: false,
-            phase: ChatSendPhase.awaitingConfirmation,
-          );
+      _sendState(groupId).update(
+        isGenerating: false,
+        phase: ChatSendPhase.awaitingConfirmation,
+      );
       return;
     }
 
     final turnRepository = ChatTurnRepository(_ref.read(databaseProvider));
     final turn = await turnRepository.getTurn(turnId);
     if (turn == null) {
-      _ref.read(chatSendStateProvider.notifier).update(
-            isGenerating: false,
-            phase: ChatSendPhase.idle,
-          );
+      _sendState(groupId).update(
+        isGenerating: false,
+        phase: ChatSendPhase.idle,
+      );
       return;
     }
 
@@ -837,22 +868,13 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         assistantMessageId: processor.assistantMessageId,
       );
     }
-
-    _ref.read(chatSendStateProvider.notifier).update(
-          isGenerating: false,
-          phase: ChatSendPhase.idle,
-        );
-    await _startQueuedNextTurnIfNeeded(
-      groupId: groupId,
-      scheduleAutoSummary: scheduleAutoSummary ?? () {},
-      cancelActiveStream: cancelActiveStream ?? () {},
-    );
   }
 
   Future<void> _startQueuedNextTurnIfNeeded({
     required int groupId,
+    required SessionRuntimeConfig? runtime,
+    required String? prompt,
     required VoidCallback scheduleAutoSummary,
-    required VoidCallback cancelActiveStream,
   }) async {
     final pending =
         _ref.read(followUpDispatchQueueProvider).takeAllForNextTurn(groupId);
@@ -865,7 +887,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     if (requests.isEmpty) {
       return;
     }
-    await sendMessageRequest(
+    await _dispatchToGroup(
       SendMessageRequest(
         text: requests.first.text,
         attachments: requests.first.attachments,
@@ -874,8 +896,10 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         dispatchMode: SendMessageDispatchMode.queue,
         additionalStartMessages: requests.skip(1).toList(growable: false),
       ),
+      groupId: groupId,
+      runtime: runtime,
+      prompt: prompt,
       scheduleAutoSummary: scheduleAutoSummary,
-      cancelActiveStream: cancelActiveStream,
     );
   }
 
@@ -883,9 +907,10 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required int groupId,
     required int? assistantMessageId,
   }) async {
-    final activeToolMessage = _resolveLatestActiveToolMessageInCurrentTurn();
+    final activeToolMessage =
+        _resolveLatestActiveToolMessageInCurrentTurn(groupId);
     if (activeToolMessage != null) {
-      await _markToolMessageCancelled(activeToolMessage);
+      await _markToolMessageCancelled(groupId, activeToolMessage);
     }
 
     if (_hasVisibleInterruptedAssistantText(assistantMessageId) ||
@@ -893,7 +918,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return;
     }
 
-    final runtimePreviewText = _resolveLatestRuntimePreviewResponseText();
+    final runtimePreviewText =
+        _resolveLatestRuntimePreviewResponseText(groupId);
     if (runtimePreviewText != null) {
       await _insertAssistantStatusMessage(
         groupId: groupId,
@@ -914,7 +940,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required ChatTurn turn,
     required int? assistantMessageId,
   }) async {
-    final partialText = _resolveInterruptedAssistantText(assistantMessageId);
+    final partialText =
+        _resolveInterruptedAssistantText(turn.groupId, assistantMessageId);
     if (partialText == null || partialText.trim().isEmpty) {
       return;
     }
@@ -955,7 +982,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     );
   }
 
-  String? _resolveInterruptedAssistantText(int? assistantMessageId) {
+  String? _resolveInterruptedAssistantText(
+      int groupId, int? assistantMessageId) {
     final visibleAssistantMessage = assistantMessageId == null
         ? null
         : _findMessageById(assistantMessageId);
@@ -963,7 +991,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     if (visibleText != null && visibleText.isNotEmpty) {
       return visibleAssistantMessage!.text;
     }
-    return _resolveLatestRuntimePreviewResponseText();
+    return _resolveLatestRuntimePreviewResponseText(groupId);
   }
 
   String _buildInterruptedReminderText(ChatTurnStatus status) {
@@ -1118,12 +1146,13 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         message.text.trim().isNotEmpty;
   }
 
-  String? _resolveLatestRuntimePreviewResponseText() {
+  String? _resolveLatestRuntimePreviewResponseText(int groupId) {
     // Read straight from the preview state rather than from the timeline
     // projection: once per-entity preview takeover dedup hides preview blocks
     // whose truth counterpart has landed, the projection alone can no longer
     // surface the streamed text we need for interruption recovery.
-    final previewState = _ref.read(runtimeStreamingPreviewStateProvider);
+    final previewState =
+        _ref.read(runtimeStreamingPreviewForGroupProvider(groupId));
     for (final message in previewState.messages.reversed) {
       for (final block in message.blocks.reversed) {
         if (block.blockType != StreamingContentBlockType.text) {
@@ -1154,7 +1183,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
           groupId,
         );
     message.id = messageId;
-    _ref.read(messagesProvider.notifier).addMessage(message);
+    _messages(groupId).addMessage(message);
   }
 
   Future<void> _updateAssistantStatusMessage({
@@ -1162,11 +1191,11 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required String text,
     required MessageStatus status,
   }) async {
-    _ref.read(messagesProvider.notifier).updateMessage(
+    _ref.read(selectedMessagesNotifierProvider).updateMessage(
           assistantMessageId,
           text,
         );
-    _ref.read(messagesProvider.notifier).updateMessageStatus(
+    _ref.read(selectedMessagesNotifierProvider).updateMessageStatus(
           assistantMessageId,
           status,
         );
@@ -1183,8 +1212,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
         .firstOrNull;
   }
 
-  ChatMessage? _resolveLatestActiveToolMessageInCurrentTurn() {
-    final messages = _ref.read(messagesProvider);
+  ChatMessage? _resolveLatestActiveToolMessageInCurrentTurn(int groupId) {
+    final messages = _ref.read(messagesForGroupProvider(groupId));
     final lastUserIndex = messages.lastIndexWhere((message) => message.isUser);
     final currentTurnMessages =
         lastUserIndex == -1 ? messages : messages.sublist(lastUserIndex + 1);
@@ -1216,7 +1245,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     return null;
   }
 
-  Future<void> _markToolMessageCancelled(ChatMessage message) async {
+  Future<void> _markToolMessageCancelled(
+      int groupId, ChatMessage message) async {
     final messageId = message.id;
     final payload = message.payloadJson;
     if (messageId == null || payload == null) {
@@ -1231,7 +1261,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       text: '已取消工具执行',
       payloadJson: cancelledPayload,
     );
-    _ref.read(messagesProvider.notifier).replaceMessage(cancelledMessage);
+    _messages(groupId).replaceMessage(cancelledMessage);
     await _ref.read(databaseProvider).updateStructuredMessage(
           messageId,
           text: cancelledMessage.text,
@@ -1260,7 +1290,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
 
   Future<String?> _validateAttachmentSupport({
     required List<ChatAttachment> attachments,
-    required ChatGroup currentGroup,
+    required SessionRuntimeConfig? runtime,
     required BaseLLM llm,
     required bool allowUnsupportedImageInputAttempt,
   }) async {
@@ -1276,7 +1306,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return null;
     }
 
-    final runtimeSupport = await _resolveRuntimeSelectedModelImageSupport();
+    final runtimeSupport =
+        await _resolveRuntimeSelectedModelImageSupport(runtime);
     if (runtimeSupport != null) {
       Logger.runtime(
         _tag,
@@ -1300,7 +1331,8 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return explicitSupport ? null : '当前模型不支持图片输入，请切换到支持多模态图片输入的模型后重试。';
     }
 
-    final selectedModelSupport = await _resolveSelectedModelImageSupport();
+    final selectedModelSupport =
+        await _resolveSelectedModelImageSupport(runtime);
     if (selectedModelSupport != null) {
       Logger.runtime(
         _tag,
@@ -1315,9 +1347,9 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     return null;
   }
 
-  Future<bool?> _resolveSelectedModelImageSupport() async {
+  Future<bool?> _resolveSelectedModelImageSupport(
+      SessionRuntimeConfig? runtime) async {
     try {
-      final runtime = _ref.read(currentSessionRuntimeConfigProvider);
       if (runtime == null) {
         return null;
       }
@@ -1334,9 +1366,9 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     return null;
   }
 
-  Future<bool?> _resolveRuntimeSelectedModelImageSupport() async {
+  Future<bool?> _resolveRuntimeSelectedModelImageSupport(
+      SessionRuntimeConfig? runtime) async {
     try {
-      final runtime = _ref.read(currentSessionRuntimeConfigProvider);
       if (runtime == null) {
         return null;
       }
@@ -1355,13 +1387,13 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
 
   Future<void> _recordRuntimeImageInputSupportSuccessIfNeeded(
     List<ChatAttachment> attachments,
+    SessionRuntimeConfig? runtime,
   ) async {
     if (attachments.isEmpty) {
       return;
     }
     try {
       final repository = _ref.read(appSettingsRepositoryProvider);
-      final runtime = _ref.read(currentSessionRuntimeConfigProvider);
       final providerId = runtime?.providerId;
       final modelId = runtime?.modelId;
       if (providerId == null || modelId == null) {
@@ -1418,42 +1450,64 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     final traceTurnId = _resolveTraceTurnId(payload, traceRecorder);
     final toolName = payload == null ? null : payload['toolName'] as String?;
     final agentTurnId = payload == null ? null : payload['agentTurnId'] as int?;
-
-    final cancelledMessage = message.copyWith(
-      text: '已取消工具执行',
-      contentType: MessageContentType.plainText,
-      payloadJson: null,
-    );
-    _ref.read(chatSendStateProvider.notifier).setPhase(ChatSendPhase.idle);
-    _ref.read(messagesProvider.notifier).replaceMessage(cancelledMessage);
-
-    final dbHelper = _ref.read(databaseProvider);
-    await dbHelper.updateStructuredMessage(
-      message.id!,
-      text: cancelledMessage.text,
-      status: cancelledMessage.status,
-      contentType: cancelledMessage.contentType,
-      payloadJson: null,
-    );
-    if (agentTurnId != null) {
+    final groupId = _ref.read(currentGroupProvider)?.id;
+    if (groupId == null ||
+        agentTurnId == null ||
+        !_interactionClaims.add(groupId)) {
+      return;
+    }
+    final runtime = _ref.read(currentSessionRuntimeConfigProvider);
+    final prompt = _ref.read(systemPromptProvider);
+    try {
+      if (!await _isPendingInteraction(
+        groupId,
+        agentTurnId,
+        message,
+        ChatTurnStatus.awaitingToolConfirmation,
+      )) {
+        return;
+      }
+      final cancelledMessage = message.copyWith(
+        text: '已取消工具执行',
+        contentType: MessageContentType.plainText,
+        payloadJson: null,
+      );
+      final dbHelper = _ref.read(databaseProvider);
+      await dbHelper.updateStructuredMessage(
+        message.id!,
+        text: cancelledMessage.text,
+        status: cancelledMessage.status,
+        contentType: cancelledMessage.contentType,
+        payloadJson: null,
+      );
       final turnRepository = ChatTurnRepository(dbHelper);
       await turnRepository.markCancelled(
         agentTurnId,
         stopReason: 'cancelled_by_user',
       );
-    }
+      _messages(groupId).replaceMessage(cancelledMessage);
+      _runs.releaseSuspendedTurn(groupId: groupId, turnId: agentTurnId);
+      _sendState(groupId).setPhase(ChatSendPhase.idle);
 
-    traceRecorder.record(
-      turnId: traceTurnId,
-      stage: ChatTraceStage.toolConfirmationAction,
-      status: ChatTraceStatus.success,
-      summary: '用户取消工具执行',
-      data: {
-        'action': 'cancel',
-        'messageId': message.id,
-        if (toolName != null) 'toolName': toolName,
-      },
-    );
+      traceRecorder.record(
+        turnId: traceTurnId,
+        stage: ChatTraceStage.toolConfirmationAction,
+        status: ChatTraceStatus.success,
+        summary: '用户取消工具执行',
+        data: {
+          'action': 'cancel',
+          'messageId': message.id,
+          if (toolName != null) 'toolName': toolName,
+        },
+      );
+    } finally {
+      _interactionClaims.remove(groupId);
+    }
+    await _startQueuedNextTurnIfNeeded(
+        groupId: groupId,
+        runtime: runtime,
+        prompt: prompt,
+        scheduleAutoSummary: () {});
   }
 
   @override
@@ -1481,9 +1535,6 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       return;
     }
 
-    _ref
-        .read(chatSendStateProvider.notifier)
-        .setPhase(ChatSendPhase.executingTool);
     final traceRecorder = _ref.read(traceRecorderProvider);
     final traceTurnId = _resolveTraceTurnId(payload, traceRecorder);
     final agentTurnId = payload['agentTurnId'] as int?;
@@ -1509,7 +1560,6 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       );
       return;
     }
-    _ref.read(chatSendStateProvider.notifier).setPhase(ChatSendPhase.idle);
   }
 
   @override
@@ -1528,39 +1578,29 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     }
     final request = AskUserQuestionRequest.fromJson(payload);
     final harness = _ref.read(turnHarnessProvider);
-    if (harness == null) {
-      return;
-    }
-    final traceRecorder = _ref.read(traceRecorderProvider);
-    final traceTurnId = _resolveTraceTurnId(payload, traceRecorder);
-    final dbHelper = _ref.read(databaseProvider);
-    final currentGroupId = currentGroup!.id!;
-    _ref.read(chatSendStateProvider.notifier).update(
-          isGenerating: false,
-          phase: ChatSendPhase.preparing,
-          clearStatusText: true,
-        );
-    final processor = _buildQuestionResumeProcessor(
-      groupId: currentGroupId,
-      traceTurnId: traceTurnId,
+    if (harness == null) return;
+    final groupId = currentGroup!.id!;
+    await _resumeInteraction(
+      groupId: groupId,
       turnId: turnId,
       sourceMessage: message,
-      response: response,
-      dbHelper: dbHelper,
-    );
-    await _runResumedAgentLoop(
-      groupId: currentGroupId,
-      turnId: turnId,
-      processor: processor,
-      stream: harness.resumeAfterQuestionAnswered(
+      expectedStatus: ChatTurnStatus.awaitingUserInteraction,
+      buildProcessor: (run) => _buildQuestionResumeProcessor(
+        run: run,
+        groupId: groupId,
+        traceTurnId:
+            _resolveTraceTurnId(payload, _ref.read(traceRecorderProvider)),
+        turnId: turnId,
+        sourceMessage: message,
+        response: response,
+        dbHelper: _ref.read(databaseProvider),
+      ),
+      stream: (config) => harness.resumeAfterQuestionAnswered(
         turnId: turnId,
         request: request,
         response: response,
-        config: await _buildChatConfig(),
+        config: config,
       ),
-      onFinally: () async {
-        _setIdleUnlessAwaitingConfirmation();
-      },
     );
   }
 
@@ -1572,41 +1612,129 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     required ChatMessage sourceMessage,
   }) async {
     final harness = _ref.read(turnHarnessProvider);
-    final currentGroup = _ref.read(currentGroupProvider);
-    final currentGroupId = currentGroup?.id;
-    final sourceMessageId = sourceMessage.id;
-    if (harness == null || currentGroupId == null || sourceMessageId == null) {
-      return;
-    }
-
-    final dbHelper = _ref.read(databaseProvider);
-    final processor = _buildConfirmationResumeProcessor(
-      groupId: currentGroupId,
-      traceTurnId: traceTurnId,
+    final groupId = _ref.read(currentGroupProvider)?.id;
+    if (harness == null || groupId == null || sourceMessage.id == null) return;
+    await _resumeInteraction(
+      groupId: groupId,
       turnId: turnId,
-      invocation: invocation,
       sourceMessage: sourceMessage,
-      sourceMessageId: sourceMessageId,
-      dbHelper: dbHelper,
-    );
-
-    await _runResumedAgentLoop(
-      groupId: currentGroupId,
-      turnId: turnId,
-      processor: processor,
-      stream: harness.resumeAfterConfirmation(
+      expectedStatus: ChatTurnStatus.awaitingToolConfirmation,
+      buildProcessor: (run) => _buildConfirmationResumeProcessor(
+        run: run,
+        groupId: groupId,
+        traceTurnId: traceTurnId,
         turnId: turnId,
         invocation: invocation,
-        config: await _buildChatConfig(),
+        sourceMessage: sourceMessage,
+        sourceMessageId: sourceMessage.id!,
+        dbHelper: _ref.read(databaseProvider),
+      ),
+      stream: (config) => harness.resumeAfterConfirmation(
+        turnId: turnId,
+        invocation: invocation,
+        config: config,
         trustTool: trustTool,
       ),
-      onFinally: () async {
-        _settleSendPhaseFromProcessor(processor);
-      },
     );
   }
 
+  Future<void> _resumeInteraction({
+    required int groupId,
+    required int turnId,
+    required ChatMessage sourceMessage,
+    required ChatTurnStatus expectedStatus,
+    required AgentEventProcessor Function(AgentRun run) buildProcessor,
+    required Stream<ChatEvent> Function(ChatConfig config) stream,
+  }) async {
+    final runtime = _ref.read(currentSessionRuntimeConfigProvider);
+    final prompt = _ref.read(systemPromptProvider);
+    if (!_interactionClaims.add(groupId)) return;
+    AgentRun? run;
+    try {
+      if (!await _isPendingInteraction(
+          groupId, turnId, sourceMessage, expectedStatus)) {
+        return;
+      }
+      run = _runs.resume(
+          groupId: groupId,
+          turnId: turnId,
+          execute: (run) async {
+            _sendState(groupId).setPhase(ChatSendPhase.preparing);
+            final config = await _buildChatConfig(
+                runtime: runtime, prompt: prompt, run: run);
+            final processor = buildProcessor(run);
+            await _runAgentEventStream(
+              run: run,
+              stream: stream(config),
+              processor: processor,
+              onError: (error, stack, completion) =>
+                  completion.completeError(error, stack),
+              onSuccess: () => _finalizeTurnOutcome(
+                  groupId: groupId, turnId: run.turnId!, processor: processor),
+            );
+            return _runOutcome(run);
+          });
+    } finally {
+      _interactionClaims.remove(groupId);
+    }
+    if (run == null) return;
+    _sendState(groupId).setPhase(ChatSendPhase.queued);
+    try {
+      final outcome = await run.done;
+      if (outcome == AgentRunOutcome.suspended) return;
+      final latest =
+          await _ref.read(chatTurnRepositoryProvider).getTurn(turnId);
+      if (latest?.status == expectedStatus &&
+          _runs.mainTurnForGroup(groupId)?.phase == AgentRunPhase.suspended) {
+        _sendState(groupId).setPhase(
+            expectedStatus == ChatTurnStatus.awaitingToolConfirmation
+                ? ChatSendPhase.awaitingConfirmation
+                : ChatSendPhase.idle);
+        return;
+      }
+      _sendState(groupId)
+          .update(phase: ChatSendPhase.idle, isGenerating: false);
+      await _startQueuedNextTurnIfNeeded(
+          groupId: groupId,
+          runtime: runtime,
+          prompt: prompt,
+          scheduleAutoSummary: () {});
+    } catch (_) {
+      _sendState(groupId).setPhase(ChatSendPhase.idle);
+      rethrow;
+    }
+  }
+
+  Future<bool> _isPendingInteraction(
+    int groupId,
+    int turnId,
+    ChatMessage source,
+    ChatTurnStatus expected,
+  ) async {
+    final active = _runs.mainTurnForGroup(groupId);
+    if (active != null &&
+        (active.phase != AgentRunPhase.suspended || active.turnId != turnId)) {
+      return false;
+    }
+    final db = _ref.read(databaseProvider);
+    final stored = await db.getTurn(turnId);
+    if (stored?.groupId != groupId || stored?.status != expected) return false;
+    final contentType = expected == ChatTurnStatus.awaitingToolConfirmation
+        ? MessageContentType.actionConfirmation
+        : MessageContentType.askUserQuestionPrompt;
+    final latestPending = (await db.getMessagesByGroup(groupId))
+        .where((item) =>
+            item.contentType == contentType &&
+            item.payloadJson?['agentTurnId'] == turnId)
+        .lastOrNull;
+    if (latestPending == null || latestPending.id != source.id) return false;
+    return latestPending.payloadJson?['providerCallId'] ==
+            source.payloadJson?['providerCallId'] &&
+        latestPending.payloadJson?['stepId'] == source.payloadJson?['stepId'];
+  }
+
   AgentEventProcessor _buildQuestionResumeProcessor({
+    required AgentRun run,
     required int groupId,
     required String traceTurnId,
     required int turnId,
@@ -1619,6 +1747,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       groupId: groupId,
       traceTurnId: traceTurnId,
       agentTurnId: turnId,
+      run: run,
       hooks: AgentEventHooks(
         onUserInteractionResult: (event) async {
           final resultMessage = sourceMessage.copyWith(
@@ -1633,6 +1762,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
             },
           );
           await _replaceStructuredMessage(
+            groupId: groupId,
             messageId: sourceMessage.id!,
             message: resultMessage,
             dbHelper: dbHelper,
@@ -1644,6 +1774,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
   }
 
   AgentEventProcessor _buildConfirmationResumeProcessor({
+    required AgentRun run,
     required int groupId,
     required String traceTurnId,
     required int turnId,
@@ -1658,6 +1789,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       groupId: groupId,
       traceTurnId: traceTurnId,
       agentTurnId: turnId,
+      run: run,
       hooks: AgentEventHooks(
         transformFirstToolExecution: (event) async {
           if (firstToolExecutionConsumed) {
@@ -1675,6 +1807,7 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
             payloadJson: runningPayload,
           );
           await _replaceStructuredMessage(
+            groupId: groupId,
             messageId: sourceMessageId,
             message: runningMessage,
             dbHelper: dbHelper,
@@ -1685,39 +1818,13 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
     );
   }
 
-  Future<void> _runResumedAgentLoop({
-    required int groupId,
-    required int turnId,
-    required AgentEventProcessor processor,
-    required Stream<ChatEvent> stream,
-    Future<void> Function()? onFinally,
-  }) async {
-    _ref.read(chatSendStateProvider.notifier).setStatusText(null);
-    await _runAgentEventStream(
-      stream: stream,
-      processor: processor,
-      onError: (error, stackTrace, completion) {
-        if (!completion.isCompleted) {
-          completion.completeError(error, stackTrace);
-        }
-      },
-      onSuccess: () async {
-        await _finalizeTurnOutcome(
-          groupId: groupId,
-          turnId: turnId,
-          processor: processor,
-        );
-      },
-      onFinally: onFinally,
-    );
-  }
-
   Future<void> _replaceStructuredMessage({
+    required int groupId,
     required int messageId,
     required ChatMessage message,
     required dynamic dbHelper,
   }) async {
-    _ref.read(messagesProvider.notifier).replaceMessage(message);
+    _messages(groupId).replaceMessage(message);
     await dbHelper.updateStructuredMessage(
       messageId,
       text: message.text,
@@ -1725,27 +1832,6 @@ class DefaultChatSendCoordinator implements ChatSendCoordinator {
       contentType: message.contentType,
       payloadJson: jsonEncode(message.payloadJson),
     );
-  }
-
-  void _setIdleUnlessAwaitingConfirmation() {
-    final sendState = _ref.read(chatSendStateProvider);
-    if (!sendState.isGenerating &&
-        sendState.phase != ChatSendPhase.awaitingConfirmation) {
-      _ref.read(chatSendStateProvider.notifier).update(
-            phase: ChatSendPhase.idle,
-            clearStatusText: true,
-          );
-    }
-  }
-
-  void _settleSendPhaseFromProcessor(AgentEventProcessor processor) {
-    final phase = processor.hasPendingConfirmation
-        ? ChatSendPhase.awaitingConfirmation
-        : ChatSendPhase.idle;
-    _ref.read(chatSendStateProvider.notifier).update(
-          phase: phase,
-          clearStatusText: phase == ChatSendPhase.idle,
-        );
   }
 
   String _resolveTraceTurnId(

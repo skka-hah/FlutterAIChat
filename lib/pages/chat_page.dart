@@ -409,7 +409,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       body: DebugTestCaseSheet(
         cases: library.allCases,
         onShowIdleStatus: () {
-          ref.read(chatSendStateProvider.notifier).update(
+          ref.read(selectedChatSendNotifierProvider).update(
                 phase: ChatSendPhase.idle,
                 isGenerating: false,
                 statusText: _debugIdleStatusText,
@@ -417,7 +417,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           Navigator.of(context).pop();
         },
         onClearIdleStatus: () {
-          ref.read(chatSendStateProvider.notifier).update(
+          ref.read(selectedChatSendNotifierProvider).update(
                 phase: ChatSendPhase.idle,
                 isGenerating: false,
                 clearStatusText: true,

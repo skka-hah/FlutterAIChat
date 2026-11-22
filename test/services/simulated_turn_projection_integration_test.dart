@@ -17,6 +17,7 @@ import 'package:ai_chat/models/context/planner_context_carrier.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_response.dart';
 import 'package:ai_chat/models/llm/base_llm.dart';
 import 'package:ai_chat/models/llm/llm_config.dart';
+import 'package:ai_chat/models/llm/streaming_message_event.dart';
 import 'package:ai_chat/models/response/message_content_type.dart';
 import 'package:ai_chat/models/tool/tool_argument_property.dart';
 import 'package:ai_chat/models/tool/tool_argument_schema.dart';
@@ -72,6 +73,232 @@ void main() {
     setUpAll(() {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
+    });
+
+    test('startup recovery preserves events and restores only suspended turns',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final group = await database.insertGroup(ChatGroup(title: 'interrupted'));
+      final waitingGroup =
+          await database.insertGroup(ChatGroup(title: 'waiting'));
+      final repository = ChatTurnRepository(database);
+      final turn = await repository.createTurn(ChatTurn(
+        groupId: group,
+        status: ChatTurnStatus.running,
+        userInput: 'interrupted request',
+      ));
+      final checkpoint = await repository.createTurn(ChatTurn(
+        groupId: waitingGroup,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'needs confirmation',
+      ));
+      final events = ChatEventRepository(database);
+      await events.appendUserMessage(
+          turnId: turn, groupId: group, content: 'interrupted request');
+
+      final checkpoints = await repository.interruptAbandonedTurns();
+      expect(checkpoints.map((turn) => turn.id), [checkpoint]);
+      expect((await repository.getTurn(turn))?.stopReason,
+          'app_process_interrupted');
+      expect((await events.listEventsByTurn(turn)).single.content,
+          'interrupted request');
+      expect((await repository.getTurn(checkpoint))?.status,
+          ChatTurnStatus.awaitingToolConfirmation);
+      await repository.interruptAbandonedTurns();
+      expect((await database.getMessagesByGroup(group)).single.status,
+          MessageStatus.interrupted);
+    });
+
+    test('a waiting question resumes only its own turn after B completes',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final a = ChatGroup(
+          id: await database.insertGroup(ChatGroup(title: 'A')), title: 'A');
+      final b = ChatGroup(
+          id: await database.insertGroup(ChatGroup(title: 'B')), title: 'B');
+      final question = AskUserQuestionToolHandler().definition;
+      final planner = AgentPlannerService(
+        llm: _QueuedDecisionLLM([
+          const ModelTurnDecision(
+            toolCalls: [
+              ModelToolCall(
+                toolName: 'ask_user_question',
+                providerCallId: 'ask-a',
+                sequence: 0,
+                arguments: {
+                  'questions': [
+                    {
+                      'id': 'choice',
+                      'header': 'Choice',
+                      'question': 'Continue?',
+                      'multiSelect': false,
+                      'options': [
+                        {'label': 'Yes', 'description': 'Continue A'}
+                      ],
+                    }
+                  ]
+                },
+              )
+            ],
+            assistantMessage: null,
+            providerState: {},
+            isTerminal: false,
+          ),
+          const ModelTurnDecision(
+              toolCalls: [],
+              assistantMessage: 'B complete',
+              providerState: {},
+              isTerminal: true),
+          const ModelTurnDecision(
+              toolCalls: [],
+              assistantMessage: 'A complete',
+              providerState: {},
+              isTerminal: true),
+        ]),
+        toolPolicyService: await _createToolPolicyService(),
+        availableTools: [question],
+      );
+      final harness = _createHarness(
+        databaseHelper: database,
+        planner: planner,
+        toolCallService: _QueuedToolCallService(
+          chatStorage: database,
+          definitions: {'ask_user_question': question},
+          queuedResultsByTool: {},
+        ),
+      );
+      final container =
+          await _createContainer(databaseHelper: database, harness: harness);
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+      final coordinator = container.read(chatSendCoordinatorProvider);
+      await chat.selectGroup(a);
+      await chat.sendMessage('Start A');
+      final prompt = container.read(activeAskUserQuestionMessageProvider)!;
+      final originalRun =
+          container.read(agentRunManagerProvider).mainTurnForGroup(a.id!)!;
+      const answer = AskUserQuestionResponse(
+        answersByQuestionId: {'choice': 'Yes'},
+        selectedOptionLabelsByQuestionId: {
+          'choice': ['Yes']
+        },
+        freeTextAnswersByQuestionId: {},
+      );
+
+      await chat.selectGroup(b);
+      await coordinator.submitQuestionAnswers(prompt, response: answer);
+      await chat.sendMessage('Start B');
+      expect(
+          (await database.getMessagesByGroup(b.id!)).last.text, 'B complete');
+      await chat.selectGroup(a);
+      await Future.wait([
+        coordinator.submitQuestionAnswers(prompt, response: answer),
+        coordinator.submitQuestionAnswers(prompt, response: answer),
+      ]);
+
+      final aTurn = (await database.getTurnsByGroup(a.id!)).single;
+      expect(aTurn.id, originalRun.turnId);
+      final events = await database.getEventsByTurn(aTurn.id!);
+      expect(
+          events.where((event) =>
+              event.eventType == ChatEventType.userInteractionResult),
+          hasLength(1));
+      expect(
+          (await database.getMessagesByGroup(a.id!)).last.text, 'A complete');
+    });
+
+    test('sessions overlap, switching retains preview and stop targets one run',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final a = ChatGroup(title: 'A');
+      final b = ChatGroup(title: 'B');
+      final c = ChatGroup(title: 'C');
+      final aId = await database.insertGroup(a);
+      final bId = await database.insertGroup(b);
+      final cId = await database.insertGroup(c);
+      final llm = _GatedDecisionLLM([aId, bId, cId]);
+      late ProviderContainer container;
+      final planner = AgentPlannerService(
+        llm: llm,
+        toolPolicyService: await _createToolPolicyService(),
+        onPlannerRuntimeStream: (event) {
+          final metadata = event.runtimeMetadata!;
+          unawaited(container
+              .read(turnProjectionDispatcherProvider(
+                  metadata['streamGroupId'] as int))
+              .dispatchPreviewEvent(event,
+                  runId: metadata['streamRunId'] as int));
+        },
+      );
+      final harness = _createHarness(
+        databaseHelper: database,
+        planner: planner,
+        toolCallService: _QueuedToolCallService(
+          chatStorage: database,
+          definitions: {},
+          queuedResultsByTool: {},
+        ),
+      );
+      container =
+          await _createContainer(databaseHelper: database, harness: harness);
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+
+      await chat.selectGroup(a.copyWith(id: aId));
+      final sendA = chat.sendMessage('request A');
+      await llm.started[aId]!.future;
+      await chat.selectGroup(b.copyWith(id: bId));
+      final sendB = chat.sendMessage('request B');
+      await llm.started[bId]!.future;
+      expect(llm.finish[aId]!.isCompleted, isFalse);
+
+      await chat.selectGroup(c.copyWith(id: cId));
+      final sendC = chat.sendMessage('request C');
+      expect(container.read(sendPhaseProvider), ChatSendPhase.queued);
+      chat.cancelStreamSubscription();
+      await sendC;
+      expect(llm.started[cId]!.isCompleted, isFalse);
+
+      await chat.selectGroup(a.copyWith(id: aId));
+      expect(
+          container
+              .read(runtimeStreamingPreviewStateProvider)
+              .messages
+              .single
+              .messageId,
+          'preview-$aId');
+      chat.cancelStreamSubscription();
+      await sendA;
+      expect(
+          container
+              .read(agentRunManagerProvider)
+              .mainTurnForGroup(bId)
+              ?.isCancellationRequested,
+          isFalse);
+
+      await chat.selectGroup(b.copyWith(id: bId));
+      expect(
+          container
+              .read(runtimeStreamingPreviewStateProvider)
+              .messages
+              .single
+              .messageId,
+          'preview-$bId');
+      llm.finish[bId]!.complete();
+      await sendB;
+
+      final aTurn = (await database.getTurnsByGroup(aId)).single;
+      final bTurn = (await database.getTurnsByGroup(bId)).single;
+      expect(aTurn.status, ChatTurnStatus.cancelled);
+      expect(bTurn.status, ChatTurnStatus.completed);
+      expect(await database.getTurnsByGroup(cId), isEmpty);
+      expect((await database.getMessagesByGroup(aId)).last.status,
+          MessageStatus.interrupted);
+      expect((await database.getMessagesByGroup(bId)).last.text, 'answer $bId');
+      expect(
+          (await database.getEventsByTurn(bTurn.id!))
+              .every((event) => event.groupId == bId),
+          isTrue);
     });
 
     test(
@@ -265,7 +492,7 @@ void main() {
     });
 
     test(
-        'multi-iteration confirmation loop projects pending confirmation and clears it after resume',
+        'another session completes while A waits for tool confirmation',
         () async {
       final databaseHelper = _createTestDatabaseHelper();
       final toolPolicyService = await _createToolPolicyService();
@@ -296,6 +523,12 @@ void main() {
             diagnosticCode: 'planner_action_call_tool',
             providerState: {'response_id': 'resp_confirm_1'},
             isTerminal: false,
+          ),
+          const ModelTurnDecision(
+            toolCalls: [],
+            assistantMessage: 'B complete',
+            providerState: {},
+            isTerminal: true,
           ),
           const ModelTurnDecision(
             toolCalls: [],
@@ -383,25 +616,9 @@ void main() {
           ChatGroup(id: groupId, title: 'projection group');
 
       final turnRepository = ChatTurnRepository(databaseHelper);
-      final turnId = await turnRepository.createTurn(
-        ChatTurn(
-          groupId: groupId,
-          status: ChatTurnStatus.running,
-          userInput: '先搜索历史，再帮我创建交周报提醒。',
-        ),
-      );
-      final turn = (await turnRepository.getTurn(turnId))!;
-
-      await _consumeEventStream(
-        container: container,
-        groupId: groupId,
-        traceTurnId: 'trace-confirm-loop',
-        agentTurnId: turnId,
-        stream: harness.runTurn(
-          turn: turn,
-          config: ChatConfig(systemPrompt: ''),
-        ),
-      );
+      final chat = container.read(chatControllerProvider);
+      await chat.sendMessage('先搜索历史，再帮我创建交周报提醒。');
+      final turnId = (await turnRepository.getTurnsByGroup(groupId)).single.id!;
 
       final pending = container.read(activePendingToolConfirmationProvider);
       expect(pending, isNotNull);
@@ -420,10 +637,18 @@ void main() {
         isTrue,
       );
 
-      await container.read(chatSendCoordinatorProvider).confirmToolInvocation(
-            pending.message,
-            trustTool: true,
-          );
+      final bId = await databaseHelper.insertGroup(ChatGroup(title: 'B'));
+      await chat.selectGroup(ChatGroup(id: bId, title: 'B'));
+      await chat.confirmToolInvocation(pending.message);
+      await chat.sendMessage('Start B');
+      expect((await databaseHelper.getMessagesByGroup(bId)).last.text, 'B complete');
+      expect((await turnRepository.getTurn(turnId))!.status,
+          ChatTurnStatus.awaitingToolConfirmation);
+      await chat.selectGroup(ChatGroup(id: groupId, title: 'projection group'));
+      await Future.wait([
+        chat.confirmToolInvocation(pending.message, trustTool: true),
+        chat.confirmToolInvocation(pending.message, trustTool: true),
+      ]);
 
       expect(container.read(activePendingToolConfirmationProvider), isNull);
       expect(
@@ -1415,7 +1640,8 @@ void main() {
       expect(secondPlannerContext, contains('### Skill: edge-to-edge'));
       expect(
         secondPlannerContext,
-        contains('Base directory for this skill: /skills/installed/edge-to-edge'),
+        contains(
+            'Base directory for this skill: /skills/installed/edge-to-edge'),
       );
       expect(
         container.read(messagesProvider).any(
@@ -1472,7 +1698,8 @@ const _createCalendarEventDefinition = ToolDefinition(
 DatabaseHelper _createTestDatabaseHelper() {
   _testDatabaseCounter += 1;
   return DatabaseHelper(
-    databaseName: 'simulated_turn_projection_$_testDatabaseCounter.db',
+    databaseName:
+        'simulated_turn_projection_${DateTime.now().microsecondsSinceEpoch}_$_testDatabaseCounter.db',
   );
 }
 
@@ -1674,5 +1901,39 @@ class _NoopBaseLLM extends BaseLLM {
   @override
   Future<String> summarizeConversation(List<ChatMessage> messages) async {
     return 'summary';
+  }
+}
+
+class _GatedDecisionLLM extends _NoopBaseLLM {
+  _GatedDecisionLLM(List<int> groups)
+      : started = {for (final group in groups) group: Completer<void>()},
+        finish = {for (final group in groups) group: Completer<void>()};
+
+  final Map<int, Completer<void>> started;
+  final Map<int, Completer<void>> finish;
+
+  @override
+  Future<ModelTurnDecision?> planTurnDecision({
+    required List<PlannerContextCarrier> carriers,
+    required ChatTurnProviderStyle activeApiStyle,
+    required bool currentTurnRunning,
+    required ChatConfig config,
+    required List availableTools,
+    void Function(LlmRetryProgress progress)? onRetryScheduled,
+  }) async {
+    final run = config.run!;
+    final groupId = run.groupId;
+    config.onPlannerRuntimeStream?.call(
+      StreamingMessageStartEvent(messageId: 'preview-$groupId'),
+    );
+    started[groupId]!.complete();
+    await Future.any([finish[groupId]!.future, run.cancellationRequested]);
+    return ModelTurnDecision(
+      toolCalls: const [],
+      assistantMessage: 'answer $groupId',
+      diagnosticCode: 'planner_action_respond',
+      providerState: const {},
+      isTerminal: true,
+    );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:ai_chat/models/chat_turn.dart';
 
 import 'package:ai_chat/bootstrap/app_bootstrap_scope.dart';
 import 'package:ai_chat/bootstrap/app_runtime.dart';
@@ -82,7 +83,7 @@ void main() {
   );
 }
 
-Future<AppRuntime> _initializeRuntime() async {
+Future<AppRuntime> _initializeRuntime(ProviderContainer container) async {
   await Logger.initialize();
   final preferences = await SharedPreferences.getInstance();
   final settingsRepository = AppSettingsRepository(preferences);
@@ -125,7 +126,6 @@ Future<AppRuntime> _initializeRuntime() async {
           artifactRepository: artifactRepository,
           fileStorageService: hostServices.artifactFileStorageService!,
         );
-  late final ProviderContainer container;
   final chatAttachmentPickerService = ImagePickerChatAttachmentPickerService();
   final runtimeAwareWorkspaceService = WorkspaceRuntimeService(
     storage: storage,
@@ -189,6 +189,15 @@ Future<AppRuntime> _initializeRuntime() async {
   final traceRecorder = ChatTraceRecorder();
   final followUpDispatchQueue = FollowUpDispatchQueue();
   final turnRepository = ChatTurnRepository(storage);
+  final checkpoints = await turnRepository.interruptAbandonedTurns();
+  final runManager = container.read(agentRunManagerProvider);
+  for (final turn in checkpoints) {
+    runManager.restoreSuspendedTurn(groupId: turn.groupId, turnId: turn.id!);
+    if (turn.status == ChatTurnStatus.awaitingToolConfirmation) {
+      container.read(chatSendStateForGroupProvider(turn.groupId).notifier)
+          .setPhase(ChatSendPhase.awaitingConfirmation);
+    }
+  }
   final turnStepRepository = ChatTurnStepRepository(storage);
   final eventRepository = ChatEventRepository(storage);
   final sessionContextService = SessionContextService(
@@ -264,16 +273,13 @@ Future<AppRuntime> _initializeRuntime() async {
       availableTools: runtimeRegistry.getDefinitionsForPlatform(
         _resolveRuntimePlatform(),
       ),
-      onPlannerRetryScheduled: (progress) {
-        final reason = progress.error is TimeoutException ? '请求超时' : '请求失败';
-        container.read(chatSendStateProvider.notifier).setStatusText(
-              '$reason，正在重试 ${progress.attempt}/${progress.maxAttempts}',
-            );
-      },
       onPlannerRuntimeStream: (entries) {
+        final groupId = entries.runtimeMetadata?['streamGroupId'] as int?;
+        final runId = entries.runtimeMetadata?['streamRunId'] as int?;
+        if (groupId == null || runId == null) return;
         unawaited(
-          container.read(turnProjectionDispatcherProvider).dispatchPreviewEvent(
-                entries,
+          container.read(turnProjectionDispatcherProvider(groupId)).dispatchPreviewEvent(
+                entries, runId: runId,
               ),
         );
       },
@@ -309,8 +315,6 @@ Future<AppRuntime> _initializeRuntime() async {
     sessionContextService: sessionContextService,
     followUpDispatchQueue: followUpDispatchQueue,
   );
-
-  container = ProviderContainer();
 
   return AppRuntime(
     sharedPreferences: preferences,

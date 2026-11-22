@@ -221,7 +221,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 24; i++)
         ChatMessage(
           id: i + 1,
@@ -321,7 +321,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: 'Earlier user message',
@@ -463,7 +463,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: 'Latest user message',
@@ -579,7 +579,7 @@ void main() {
     });
 
     final baseTime = DateTime(2026, 6, 1, 12);
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 24; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -842,7 +842,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '需要更多信息',
@@ -906,7 +906,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '需要更多信息',
@@ -981,7 +981,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '准备写入文件',
@@ -1131,7 +1131,7 @@ void main() {
     );
     addTearDown(container.dispose);
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '测试状态浮层',
@@ -1544,7 +1544,7 @@ ProviderContainer _createChatPageTestContainer({
 
 void _seedShortChatHistory(ProviderContainer container) {
   final baseTime = DateTime(2026, 6, 1, 12);
-  container.read(messagesProvider.notifier).setMessages([
+  container.read(selectedMessagesNotifierProvider).setMessages([
     ChatMessage(
       id: 1,
       text: 'hello',

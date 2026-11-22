@@ -1,7 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'chat_collection_providers.dart';
+import '../services/agent_run_manager.dart';
+
+/// The app's shared quota and main-turn reservations.
+final agentRunManagerProvider =
+    Provider<AgentRunManager>((ref) => AgentRunManager());
 
 enum ChatSendPhase {
   idle,
+  queued,
   preparing,
   awaitingConfirmation,
   executingTool,
@@ -82,9 +89,22 @@ class ChatSendStateNotifier extends StateNotifier<ChatSendState> {
   }
 }
 
-final chatSendStateProvider =
-    StateNotifierProvider<ChatSendStateNotifier, ChatSendState>((ref) {
+/// Mutable send state for a specific conversation.
+final chatSendStateForGroupProvider =
+    StateNotifierProvider.family<ChatSendStateNotifier, ChatSendState, int?>(
+        (ref, groupId) {
   return ChatSendStateNotifier();
+});
+
+final chatSendStateProvider = Provider<ChatSendState>((ref) {
+  return ref.watch(
+      chatSendStateForGroupProvider(ref.watch(currentGroupProvider)?.id));
+});
+
+final selectedChatSendNotifierProvider = Provider<ChatSendStateNotifier>((ref) {
+  return ref.watch(
+      chatSendStateForGroupProvider(ref.watch(currentGroupProvider)?.id)
+          .notifier);
 });
 
 final isGeneratingProvider = Provider<bool>((ref) {

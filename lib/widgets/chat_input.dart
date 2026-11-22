@@ -303,7 +303,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final isStreamingResponse = sendPhase == ChatSendPhase.streamingResponse;
     final isAwaitingConfirmation =
         sendPhase == ChatSendPhase.awaitingConfirmation;
-    final isCancellablePhase = sendPhase == ChatSendPhase.preparing ||
+    final isCancellablePhase = sendPhase == ChatSendPhase.queued ||
+        sendPhase == ChatSendPhase.preparing ||
         sendPhase == ChatSendPhase.executingTool ||
         sendPhase == ChatSendPhase.streamingResponse;
     final isBlockingPhase = isCancellablePhase;

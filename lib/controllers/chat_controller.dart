@@ -103,6 +103,13 @@ class ChatController {
   }
 
   void cancelStreamSubscription() {
+    final groupId = _ref.read(currentGroupProvider)?.id;
+    final manager = _ref.read(agentRunManagerProvider);
+    final run = groupId == null ? null : manager.mainTurnForGroup(groupId);
+    if (run != null) {
+      manager.cancel(run.runId);
+      return;
+    }
     final subscription = _ref.read(streamSubscriptionProvider);
     if (subscription != null) {
       unawaited(subscription.cancel());
@@ -115,7 +122,7 @@ class ChatController {
     }
 
     if (!_ref.read(isGeneratingProvider)) return;
-    _ref.read(chatSendStateProvider.notifier).update(
+    _ref.read(selectedChatSendNotifierProvider).update(
           isGenerating: false,
           phase: ChatSendPhase.idle,
         );
@@ -130,7 +137,7 @@ class ChatController {
     final aiMessage = messages[lastIndex];
     if (aiMessage.status == MessageStatus.generating) {
       _ref
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .updateMessageStatus(aiMessage.id!, MessageStatus.interrupted);
 
       final dbHelper = _ref.read(databaseProvider);
@@ -160,7 +167,7 @@ class ChatController {
       throw StateError('current_group_missing');
     }
 
-    _ref.read(chatSendStateProvider.notifier).update(
+    _ref.read(selectedChatSendNotifierProvider).update(
           phase: ChatSendPhase.preparing,
           isGenerating: false,
           statusText: '正在压缩历史上下文',
@@ -174,7 +181,7 @@ class ChatController {
       }
       return result;
     } finally {
-      _ref.read(chatSendStateProvider.notifier).update(
+      _ref.read(selectedChatSendNotifierProvider).update(
             phase: ChatSendPhase.idle,
             isGenerating: false,
             clearStatusText: true,

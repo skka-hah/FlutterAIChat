@@ -118,8 +118,7 @@ class ChatDrawer extends ConsumerWidget {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed:
-                          isSendInFlight ? null : chatController.createNewGroup,
+                      onPressed: chatController.createNewGroup,
                       icon: const Icon(Icons.add),
                       label: const Text('新建对话'),
                       style: FilledButton.styleFrom(
@@ -158,13 +157,11 @@ class ChatDrawer extends ConsumerWidget {
                             )
                           : 'Session',
                       isSelected: isSelected,
-                      enabled: !isSendInFlight,
-                      onTap: isSendInFlight
-                          ? null
-                          : () {
-                              chatController.selectGroup(group);
-                              Navigator.pop(context);
-                            },
+                      enabled: true,
+                      onTap: () {
+                        chatController.selectGroup(group);
+                        Navigator.pop(context);
+                      },
                       onLongPress: isSendInFlight
                           ? null
                           : () {

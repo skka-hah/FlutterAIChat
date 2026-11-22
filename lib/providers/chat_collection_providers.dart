@@ -6,9 +6,21 @@ import 'package:ai_chat/providers/chat_dependency_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // 消息列表提供者
-final messagesProvider =
-    StateNotifierProvider<MessagesNotifier, List<ChatMessage>>((ref) {
+/// Timeline messages and live updates for one conversation.
+final messagesForGroupProvider =
+    StateNotifierProvider.family<MessagesNotifier, List<ChatMessage>, int?>(
+        (ref, groupId) {
   return MessagesNotifier(ref);
+});
+
+final messagesProvider = Provider<List<ChatMessage>>((ref) {
+  return ref
+      .watch(messagesForGroupProvider(ref.watch(currentGroupProvider)?.id));
+});
+
+final selectedMessagesNotifierProvider = Provider<MessagesNotifier>((ref) {
+  return ref.watch(
+      messagesForGroupProvider(ref.watch(currentGroupProvider)?.id).notifier);
 });
 
 class MessagesNotifier extends StateNotifier<List<ChatMessage>> {

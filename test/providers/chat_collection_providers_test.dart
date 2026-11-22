@@ -22,7 +22,7 @@ void main() {
         timestamp: DateTime(2026, 4, 12, 12, 0, 0),
       );
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         lateMessage,
         earlyMessage,
       ]);
@@ -51,7 +51,7 @@ void main() {
         timestamp: timestamp,
       );
 
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         assistantMessage,
         userMessage,
       ]);
@@ -80,13 +80,13 @@ void main() {
         ),
       ];
 
-      container.read(messagesProvider.notifier).setMessages(messages);
+      container.read(selectedMessagesNotifierProvider).setMessages(messages);
       final firstPass = container
           .read(messagesProvider)
           .map((message) => message.text)
           .toList(growable: false);
 
-      container.read(messagesProvider.notifier).setMessages(messages.reversed.toList());
+      container.read(selectedMessagesNotifierProvider).setMessages(messages.reversed.toList());
       final secondPass = container
           .read(messagesProvider)
           .map((message) => message.text)

@@ -662,6 +662,12 @@ void main() {
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 9,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'fixture',
+      ));
       final confirmationMessage = ChatMessage(
         text: '准备执行工具：创建提醒',
         role: MessageRole.assistant,
@@ -680,7 +686,7 @@ void main() {
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = confirmationMessageId;
       container
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .setMessages([confirmationMessage]);
 
       await container
@@ -767,6 +773,12 @@ void main() {
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 13,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'fixture',
+      ));
       final confirmationMessage = ChatMessage(
         text: '准备执行工具：搜索历史记录',
         role: MessageRole.assistant,
@@ -785,7 +797,7 @@ void main() {
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = confirmationMessageId;
       container
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .setMessages([confirmationMessage]);
 
       await container
@@ -896,6 +908,12 @@ void main() {
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 12,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'fixture',
+      ));
       final confirmationMessage = ChatMessage(
         text: '请确认执行工具：写入文件',
         role: MessageRole.assistant,
@@ -917,7 +935,7 @@ void main() {
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = confirmationMessageId;
       container
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .setMessages([confirmationMessage]);
 
       await container
@@ -1001,6 +1019,12 @@ void main() {
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 11,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'fixture',
+      ));
       final confirmationMessage = ChatMessage(
         text: '准备执行工具：联网搜索',
         role: MessageRole.assistant,
@@ -1019,7 +1043,7 @@ void main() {
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = confirmationMessageId;
       container
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .setMessages([confirmationMessage]);
 
       await container
@@ -1091,6 +1115,12 @@ void main() {
           await databaseHelper.insertGroup(ChatGroup(title: 'group'));
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 12,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingToolConfirmation,
+        userInput: 'fixture',
+      ));
       final confirmationMessage = ChatMessage(
         text: '准备执行工具：联网搜索',
         role: MessageRole.assistant,
@@ -1109,7 +1139,7 @@ void main() {
           await databaseHelper.insertMessage(confirmationMessage, groupId);
       confirmationMessage.id = confirmationMessageId;
       container
-          .read(messagesProvider.notifier)
+          .read(selectedMessagesNotifierProvider)
           .setMessages([confirmationMessage]);
 
       final future = container
@@ -1389,6 +1419,12 @@ void main() {
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
 
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 42,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingUserInteraction,
+        userInput: 'fixture',
+      ));
       const promptPayload = {
         'questions': [
           {
@@ -1424,7 +1460,7 @@ void main() {
         contentType: MessageContentType.askUserQuestionPrompt,
         payloadJson: promptPayload,
       );
-      container.read(messagesProvider.notifier).addMessage(promptMessage);
+      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
 
       await container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
             promptMessage,
@@ -1490,6 +1526,12 @@ void main() {
       container.read(currentGroupProvider.notifier).state =
           ChatGroup(id: groupId, title: 'group');
 
+      await databaseHelper.insertTurn(ChatTurn(
+        id: 42,
+        groupId: groupId,
+        status: ChatTurnStatus.awaitingUserInteraction,
+        userInput: 'fixture',
+      ));
       const promptPayload = {
         'questions': [
           {
@@ -1524,7 +1566,7 @@ void main() {
         contentType: MessageContentType.askUserQuestionPrompt,
         payloadJson: promptPayload,
       );
-      container.read(messagesProvider.notifier).addMessage(promptMessage);
+      container.read(selectedMessagesNotifierProvider).addMessage(promptMessage);
 
       final future =
           container.read(chatSendCoordinatorProvider).submitQuestionAnswers(
@@ -1543,7 +1585,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
       expect(container.read(sendPhaseProvider), isNot(ChatSendPhase.idle));
-      expect(container.read(streamSubscriptionProvider), isNotNull);
+      expect(container.read(agentRunManagerProvider).mainTurnForGroup(groupId)?.turnId, 42);
 
       resumeQuestionGate.complete();
       await future;
@@ -1705,7 +1747,7 @@ void main() {
           'agentTurnId': 9,
         },
       );
-      container.read(messagesProvider.notifier).setMessages([
+      container.read(selectedMessagesNotifierProvider).setMessages([
         staleMessage.copyWith(
           text: '正在执行工具：编辑文件',
           contentType: MessageContentType.toolInvocation,
@@ -1914,7 +1956,7 @@ int _testDatabaseCounter = 0;
 DatabaseHelper _createTestDatabaseHelper() {
   _testDatabaseCounter += 1;
   return DatabaseHelper(
-    databaseName: 'chat_controller_tool_flow_test_$_testDatabaseCounter.db',
+    databaseName: 'chat_controller_tool_flow_test_${DateTime.now().microsecondsSinceEpoch}_$_testDatabaseCounter.db',
   );
 }
 
@@ -2064,6 +2106,9 @@ class _FakeTurnHarness extends TurnHarness {
       throw error;
     }
     for (final event in events) {
+      if (event.eventType == ChatEventType.assistantToolConfirmation) {
+        await ChatTurnRepository(databaseHelper).markAwaitingToolConfirmation(turn.id!);
+      }
       yield ChatEvent(
         turnId: turn.id ?? event.turnId,
         groupId: turn.groupId,
@@ -2094,11 +2139,16 @@ class _FakeTurnHarness extends TurnHarness {
   }) async* {
     resumedTurnIds.add(turnId);
     resumedTrustFlags.add(trustTool);
+    final repository = ChatTurnRepository(databaseHelper);
+    await repository.markRunning(turnId);
     final gate = resumeGate;
     if (gate != null) {
       await gate.future;
     }
     for (final event in resumedEvents) {
+      if (event.eventType == ChatEventType.assistantToolConfirmation) {
+        await repository.markAwaitingToolConfirmation(turnId);
+      }
       yield ChatEvent(
         turnId: turnId,
         groupId: event.groupId,
@@ -2121,6 +2171,7 @@ class _FakeTurnHarness extends TurnHarness {
     required ChatConfig config,
   }) async* {
     resumedQuestionTurnIds.add(turnId);
+    await ChatTurnRepository(databaseHelper).markRunning(turnId);
     final gate = resumeQuestionGate;
     if (gate != null) {
       await gate.future;

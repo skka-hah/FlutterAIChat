@@ -102,6 +102,14 @@ class ActiveTurnStatusResolver {
     switch (sendState.phase) {
       case ChatSendPhase.idle:
         return null;
+      case ChatSendPhase.queued:
+        return const ActiveTurnStatusPresentation(
+          phase: ActiveTurnStatusPhase.planning,
+          text: '等待执行额度',
+          turnId: 'pending',
+          sourceKind: ActiveTurnStatusSourceKind.sendPhaseFallback,
+          allowFloating: true,
+        );
       case ChatSendPhase.preparing:
         return ActiveTurnStatusPresentation(
           phase: ActiveTurnStatusPhase.planning,

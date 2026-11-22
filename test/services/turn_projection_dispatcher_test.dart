@@ -21,7 +21,7 @@ void main() {
       final callOrder = <String>[];
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
+      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
 
       await dispatcher.dispatchPreviewEvent(
         const StreamingMessageStartEvent(messageId: 'm1'),
@@ -80,7 +80,7 @@ void main() {
     test('keeps late preview events until projection-level logicalId takeover', () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
+      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
 
       await dispatcher.dispatchPreviewEvent(
         const StreamingMessageStartEvent(messageId: 'm1'),
@@ -117,7 +117,7 @@ void main() {
     test('keeps previous preview message when same turn starts a new provider message', () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
+      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
       const metadata = {
         'streamTurnId': 'turn-1',
         'streamTraceId': 'trace-1',
@@ -192,16 +192,15 @@ void main() {
         () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
-
       container.read(currentGroupProvider.notifier).state = ChatGroup(
         id: 1,
         title: 'group',
       );
+      final dispatcher = container.read(turnProjectionDispatcherProvider(1));
       // Seed a user message so the preview projection resolves to the same
       // `<groupId>_<userMessageId>` turn id the persisted final answer ends
       // up with; otherwise the dedup keys disagree and both blocks survive.
-      container.read(messagesProvider.notifier).addMessage(
+      container.read(selectedMessagesNotifierProvider).addMessage(
             ChatMessage(
               id: 10,
               text: 'hi',
@@ -242,7 +241,7 @@ void main() {
           },
         ),
         (_) async {
-          container.read(messagesProvider.notifier).addMessage(
+          container.read(selectedMessagesNotifierProvider).addMessage(
                 ChatMessage(
                   id: 11,
                   text: 'hello',
@@ -281,7 +280,7 @@ void main() {
         () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final dispatcher = container.read(turnProjectionDispatcherProvider);
+      final dispatcher = container.read(turnProjectionDispatcherProvider(container.read(currentGroupProvider)?.id));
       final traceId = streamingTraceIdForTurn(42);
       final startedAt = DateTime(2026, 5, 31, 13, 0, 0);
 

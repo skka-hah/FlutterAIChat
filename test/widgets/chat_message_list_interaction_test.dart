@@ -22,8 +22,7 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -39,7 +38,7 @@ void main() {
       container.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '需要更多信息',
@@ -90,8 +89,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,
@@ -105,7 +103,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -151,8 +149,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,
@@ -166,7 +163,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -212,8 +209,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,
@@ -227,7 +223,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -283,7 +279,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith((ref) => sendState),
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => sendState),
       ],
     );
     addTearDown(() async {
@@ -292,7 +288,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1,
         text: '请写一篇长一点的说明',
@@ -301,7 +297,7 @@ void main() {
         contentType: MessageContentType.plainText,
       ),
     ]);
-    container.read(runtimeStreamingPreviewStateProvider.notifier).state =
+    container.read(selectedRuntimeStreamingPreviewNotifierProvider).state =
         RuntimeStreamingPreviewState(
       messages: [
         RuntimeStreamingPreviewMessage(
@@ -373,8 +369,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -388,7 +383,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -438,8 +433,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -453,7 +447,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -494,8 +488,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -513,7 +506,7 @@ void main() {
       id: 1,
       title: 'First group',
     );
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 30; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -555,7 +548,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 0; i < 50; i++) ...[
         ChatMessage(
           id: 1000 + i * 2 + 1,
@@ -588,8 +581,7 @@ void main() {
         hasMoreMessagesProvider.overrideWith((ref) => true),
         chatControllerProvider
             .overrideWith((ref) => _PassiveChatController(ref)),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -603,7 +595,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 20; i < 40; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -652,8 +644,7 @@ void main() {
       overrides: [
         scrollControllerProvider.overrideWith((ref) => scrollController),
         hasMoreMessagesProvider.overrideWith((ref) => true),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.idle,
               isGenerating: false,
@@ -671,7 +662,7 @@ void main() {
       scrollController.dispose();
     });
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       for (var i = 20; i < 40; i++) ...[
         ChatMessage(
           id: i * 2 + 1,
@@ -720,8 +711,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,
@@ -746,7 +736,7 @@ void main() {
       },
     );
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 1001,
         text: 'Long list question',
@@ -800,8 +790,7 @@ void main() {
       overrides: [
         hasMoreMessagesProvider.overrideWith((ref) => false),
         scrollControllerProvider.overrideWith((ref) => scrollController),
-        chatSendStateProvider.overrideWith(
-          (ref) => ChatSendStateNotifier()
+        chatSendStateForGroupProvider.overrideWith((ref, groupId) => ChatSendStateNotifier()
             ..update(
               phase: ChatSendPhase.streamingResponse,
               isGenerating: true,
@@ -826,7 +815,7 @@ void main() {
       },
     );
 
-    container.read(messagesProvider.notifier).setMessages([
+    container.read(selectedMessagesNotifierProvider).setMessages([
       ChatMessage(
         id: 2001,
         text: 'Long list question',
@@ -899,7 +888,7 @@ class _LoadMoreChatController extends ChatController {
   @override
   Future<void> loadMoreMessages() async {
     loadMoreCalls += 1;
-    _ref.read(messagesProvider.notifier).insertMessages(0, [
+    _ref.read(selectedMessagesNotifierProvider).insertMessages(0, [
       for (var i = 0; i < 10; i++) ...[
         ChatMessage(
           id: i * 2 + 1,

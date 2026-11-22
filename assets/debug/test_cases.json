@@ -1,6 +1,28 @@
 {
   "cases": [
     {
+      "id": "concurrent-session-switch-and-stop",
+      "group": "agent-loop-basic",
+      "title": "并发会话切换与定向停止",
+      "summary": "A 生成时切到 B 发送同一提示。确认两边都开始输出后切回 A 并停止，再切到 B 检查回复完整。用需要工具确认的提示复测，确认 B 可以在 A 等待审批时完成。",
+      "prompt": "用二十条简短建议讲解如何整理个人笔记，每条给出一个例子。",
+      "tags": ["agent-loop", "concurrency"],
+      "featured": false,
+      "enabled": true,
+      "setup": {
+        "historyMessages": [],
+        "files": [],
+        "mutationsAfterCheckpoints": []
+      },
+      "checkpoints": ["finalAnswer"],
+      "assertions": {
+        "endStatus": ["completed"],
+        "mustContainEvents": ["userMessage", "finalAnswer"],
+        "mustNotContainEvents": [],
+        "mustNotHang": true
+      }
+    },
+    {
       "id": "agent-loop-plain-answer",
       "group": "agent-loop-basic",
       "title": "纯文本直答",

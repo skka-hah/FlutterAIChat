@@ -70,10 +70,21 @@ class DefaultChatSummaryController implements ChatSummaryController {
       await dbHelper.updateGroupTitle(currentGroup!.id!, summary,
           isSummarized: true);
 
-      _ref.read(currentGroupProvider.notifier).state =
-          currentGroup.copyWith(title: summary, isSummarized: true);
-
-      await _sessionCoordinator.loadGroups();
+      final selectedGroup = _ref.read(currentGroupProvider);
+      if (selectedGroup?.id == currentGroup.id) {
+        _ref.read(currentGroupProvider.notifier).state =
+            selectedGroup!.copyWith(title: summary, isSummarized: true);
+      }
+      if (selectedGroup?.id == currentGroup.id &&
+          _ref
+                  .read(agentRunManagerProvider)
+                  .mainTurnForGroup(currentGroup.id!) ==
+              null) {
+        await _sessionCoordinator.loadGroups();
+      } else {
+        final groups = await dbHelper.getAllGroups();
+        _ref.read(groupsProvider.notifier).setGroups(groups);
+      }
 
       Logger.i(_tag, '对话摘要生成成功: $summary');
       return summary;
