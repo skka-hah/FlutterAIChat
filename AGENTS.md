@@ -239,6 +239,7 @@ To add or extend provider support:
 
 ## Implementation Notes
 
+- Do not expose machine-specific absolute filesystem paths in responses, Markdown link targets, artifacts, repository files, or shared logs. Use repository-relative paths for this project, commit-pinned links for external repositories, and placeholders or environment variables in command examples.
 - The app is still internal-only. Unless a task explicitly requires it, do not add backward-compatibility layers, migration shims, fallback parsing for retired schemas, or legacy-preservation code.
 - `assets/debug/test_cases.json` is the single source of truth for debug/e2e manual test cases.
 - `config/local_defaults.json` is a runtime-facing local defaults file; schema changes must consider app boot config, settings fallback behavior, and automation scripts that read it directly.

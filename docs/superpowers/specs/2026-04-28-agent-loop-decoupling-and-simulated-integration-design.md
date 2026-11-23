@@ -377,7 +377,7 @@ flowchart LR
 另外，provider capability boundary 虽然不属于 UI projection 主线，但它是后续模拟环境集成测试与真实 provider 验证闭环的共同前提。
 因此它不作为“阶段零”插队重写主架构，而是作为一条并行约束工作流推进，具体落地见：
 
-- [Provider Capability Boundary Implementation Plan](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/superpowers/plans/2026-04-28-provider-capability-boundary-implementation-plan.md)
+- [Provider Capability Boundary Implementation Plan](../plans/2026-04-28-provider-capability-boundary-implementation-plan.md)
 
 ### 阶段一：建立 `turn ledger -> projection model -> UI` 稳定边界
 
@@ -589,9 +589,9 @@ flowchart LR
 
 本设计与以下文档配套使用：
 
-- [docs/architecture/2026-04-13-agent-loop-architecture-baseline.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/2026-04-13-agent-loop-architecture-baseline.md)
-- [docs/architecture/session-context-management.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/session-context-management.md)
-- [docs/architecture/agent-loop-boundaries-and-decoupling.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/agent-loop-boundaries-and-decoupling.md)
+- [docs/architecture/2026-04-13-agent-loop-architecture-baseline.md](../../architecture/2026-04-13-agent-loop-architecture-baseline.md)
+- [docs/architecture/session-context-management.md](../../architecture/session-context-management.md)
+- [docs/architecture/agent-loop-boundaries-and-decoupling.md](../../architecture/agent-loop-boundaries-and-decoupling.md)
 
 职责分工如下：
 

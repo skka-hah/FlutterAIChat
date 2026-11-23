@@ -8,7 +8,7 @@
 2. 助手流式输出期间，用户一旦主动上滑查看历史，不应再被强制拉回当前回复。
 3. 进入会话时默认显示最新消息，而不是最早消息。
 
-在当前实现中，[chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 使用正序 `ListView`，并通过“首次布局后滚到底部”的方式试图满足最新消息优先展示。由于消息块包含 Markdown、代码块、结构化卡片和流式增量文本，单次布局后的 `maxScrollExtent` 不稳定，初始化贴底需要额外校正，容易产生跳动和时机竞争。
+在当前实现中，[chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 使用正序 `ListView`，并通过“首次布局后滚到底部”的方式试图满足最新消息优先展示。由于消息块包含 Markdown、代码块、结构化卡片和流式增量文本，单次布局后的 `maxScrollExtent` 不稳定，初始化贴底需要额外校正，容易产生跳动和时机竞争。
 
 ## Decision
 
@@ -44,21 +44,21 @@
 
 ### Current Message Ordering
 
-[chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 当前会先对消息做时间线排序，再用正序 `ListView.builder` 渲染。消息块由 `ChatBlockBuilder` 将一条用户消息及其后续助手消息组合成一个 turn 片段。
+[chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 当前会先对消息做时间线排序，再用正序 `ListView.builder` 渲染。消息块由 `ChatBlockBuilder` 将一条用户消息及其后续助手消息组合成一个 turn 片段。
 
 ### Current Scroll Ownership Is Split
 
-[chat_controller.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/controllers/chat_controller.dart) 和 [chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 都在监听同一个 `ScrollController`，并且都会修改 `autoScrollToBottomProvider`。这会导致滚动语义分散、状态来源不清。
+[chat_controller.dart](../../../lib/controllers/chat_controller.dart) 和 [chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 都在监听同一个 `ScrollController`，并且都会修改 `autoScrollToBottomProvider`。这会导致滚动语义分散、状态来源不清。
 
 ### Current Pagination Assumes Top == Older History
 
-[chat_session_coordinator.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/controllers/chat_session_coordinator.dart) 的 `loadMoreMessages()` 基于当前列表顶部附近触发加载更多，而列表反转后，触发位置和插入后的可见锚点维护都需要同步调整。
+[chat_session_coordinator.dart](../../../lib/controllers/chat_session_coordinator.dart) 的 `loadMoreMessages()` 基于当前列表顶部附近触发加载更多，而列表反转后，触发位置和插入后的可见锚点维护都需要同步调整。
 
 ## Proposed Design
 
 ### 1. Reverse the Message List
 
-[chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 的消息列表改为 `reverse: true`。
+[chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 的消息列表改为 `reverse: true`。
 
 设计含义：
 
@@ -74,13 +74,13 @@
 
 ### 2. Make the List Widget the Single Scroll Authority
 
-滚动状态应尽量集中在 [chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart)，避免控制器和组件双写同一个滚动意图。
+滚动状态应尽量集中在 [chat_message_list.dart](../../../lib/widgets/chat_message_list.dart)，避免控制器和组件双写同一个滚动意图。
 
-建议保留 [chat_ui_providers.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/providers/chat_ui_providers.dart) 中的 provider，但收紧语义：
+建议保留 [chat_ui_providers.dart](../../../lib/providers/chat_ui_providers.dart) 中的 provider，但收紧语义：
 
 1. `autoScrollToBottomProvider` 表示“当前是否允许继续跟随最新消息锚点”，而不是“此刻是否正在动画滚动到底部”。
 2. `ChatMessageList` 负责根据用户手势、当前位置和生成状态更新该 provider。
-3. [chat_controller.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/controllers/chat_controller.dart) 内的重复滚动监听应删除或下沉，避免互相覆盖。
+3. [chat_controller.dart](../../../lib/controllers/chat_controller.dart) 内的重复滚动监听应删除或下沉，避免互相覆盖。
 
 ### 3. Define Explicit Scroll Rules
 
@@ -129,7 +129,7 @@
 
 ### Message List
 
-主要改动 [chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart)：
+主要改动 [chat_message_list.dart](../../../lib/widgets/chat_message_list.dart)：
 
 1. 将 `ListView.builder` 改为 `reverse: true`。
 2. 统一管理滚动监听、锚点判断和“回到底部”按钮显隐。
@@ -138,21 +138,21 @@
 
 ### Scroll State
 
-主要改动 [chat_ui_providers.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/providers/chat_ui_providers.dart)：
+主要改动 [chat_ui_providers.dart](../../../lib/providers/chat_ui_providers.dart)：
 
 1. 保留现有 provider，更新注释与语义。
 2. 如有必要，增加“是否完成首次会话定位”的轻量状态，避免切换会话时重复触发无意义滚动修正。
 
 ### Controller Cleanup
 
-主要改动 [chat_controller.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/controllers/chat_controller.dart)：
+主要改动 [chat_controller.dart](../../../lib/controllers/chat_controller.dart)：
 
 1. 移除 `_initScrollListener()` 中与 UI 组件重复的滚动状态写入。
 2. 保留发送、切换会话等业务动作对滚动意图的显式重置。
 
 ### Session Loading
 
-主要改动 [chat_session_coordinator.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/controllers/chat_session_coordinator.dart)：
+主要改动 [chat_session_coordinator.dart](../../../lib/controllers/chat_session_coordinator.dart)：
 
 1. 保持历史分页数据获取接口不变。
 2. 若现有插入位置与反转列表不匹配，需要同步调整 `messagesProvider` 中消息插入顺序，以保证 UI 层的索引映射可预测。

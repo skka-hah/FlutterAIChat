@@ -18,7 +18,7 @@
 
 ## 背景
 
-参考文档 `/Users/skka/vsSpace/Claude-Code/docs/12-long-term-memory.zh-CN.md` 的核心思路是：
+参考文档 `Claude-Code/docs/12-long-term-memory.zh-CN.md` 的核心思路是：
 
 - 长期记忆不是把历史全塞进模型。
 - 长期记忆先形成文件，再按需召回和验证。

@@ -341,7 +341,7 @@ class ToolUiRendererRegistry {
 
 #### 页面接入
 
-建议在 [chat_page.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/chat_page.dart) 中，将底部确认区放在：
+建议在 [chat_page.dart](../../../lib/pages/chat_page.dart) 中，将底部确认区放在：
 
 - `ChatMessageList` 与 `ChatInput` 之间
 
@@ -616,7 +616,7 @@ result 展开区展示：
 - `AGENTS.md`
 - 相关 tool use / interaction 设计文档引用关系
 
-如果后续为 trace/log 添加新字段，详细规则应仅写入 [docs/architecture/logging.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/logging.md)。
+如果后续为 trace/log 添加新字段，详细规则应仅写入 [docs/architecture/logging.md](../../architecture/logging.md)。
 
 ## 决策总结
 

@@ -80,7 +80,7 @@
 
 ### 3. 设置页交互已经到达复杂度上限
 
-当前 [`lib/pages/settings_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/settings_page.dart) 只有单组表单。如果直接把“提供方列表 + 模型切换 + 默认切换 + 测试 + 增删改”全部塞进去，会显著提高页面噪声和状态管理复杂度。
+当前 [`lib/pages/settings_page.dart`](../../../lib/pages/settings_page.dart) 只有单组表单。如果直接把“提供方列表 + 模型切换 + 默认切换 + 测试 + 增删改”全部塞进去，会显著提高页面噪声和状态管理复杂度。
 
 ### 4. 运行时读取入口需要稳定
 
@@ -223,7 +223,7 @@
 
 ### 一、`LlmLocalDefaults` 升级为提供方目录解析器
 
-[`lib/repositories/llm_local_defaults.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/repositories/llm_local_defaults.dart) 需要直接升级为新的提供方目录解析器：
+[`lib/repositories/llm_local_defaults.dart`](../../../lib/repositories/llm_local_defaults.dart) 需要直接升级为新的提供方目录解析器：
 
 1. 解析提供方目录
 2. 解析默认提供方与默认模型
@@ -244,7 +244,7 @@
 
 ### 二、`AppSettingsRepository` 升级为提供方目录仓库
 
-[`lib/repositories/app_settings_repository.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/repositories/app_settings_repository.dart) 从“单组配置仓库”升级为“提供方目录仓库”，建议提供以下能力：
+[`lib/repositories/app_settings_repository.dart`](../../../lib/repositories/app_settings_repository.dart) 从“单组配置仓库”升级为“提供方目录仓库”，建议提供以下能力：
 
 1. `Future<List<LlmProviderConfig>> getProviders()`
 2. `Future<LlmProviderConfig?> getProviderById(String providerId)`
@@ -305,7 +305,7 @@
 
 建议新增一个提供方配置实体，例如：
 
-- [`lib/models/llm/llm_provider_config.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_provider_config.dart)
+- [`lib/models/llm/llm_provider_config.dart`](../../../lib/models/llm/llm_provider_config.dart)
 
 字段建议：
 
@@ -319,7 +319,7 @@
 
 建议新增模型配置实体，例如：
 
-- [`lib/models/llm/llm_provider_model.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_provider_model.dart)
+- [`lib/models/llm/llm_provider_model.dart`](../../../lib/models/llm/llm_provider_model.dart)
 
 字段建议：
 
@@ -330,7 +330,7 @@
 
 建议新增选择态实体，例如：
 
-- [`lib/models/llm/llm_selection_state.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_selection_state.dart)
+- [`lib/models/llm/llm_selection_state.dart`](../../../lib/models/llm/llm_selection_state.dart)
 
 字段建议：
 
@@ -349,7 +349,7 @@
 
 ### 一、设置首页职责收敛
 
-[`lib/pages/settings_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/settings_page.dart) 中的“模型接入”区域改为轻量摘要区，展示：
+[`lib/pages/settings_page.dart`](../../../lib/pages/settings_page.dart) 中的“模型接入”区域改为轻量摘要区，展示：
 
 1. 当前提供方名称
 2. 当前模型名称或模型 ID
@@ -364,7 +364,7 @@
 
 新增模型管理页，例如：
 
-- [`lib/pages/model_management_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/model_management_page.dart)
+- [`lib/pages/model_management_page.dart`](../../../lib/pages/model_management_page.dart)
 
 页面职责：
 
@@ -396,7 +396,7 @@
 
 新增一个复用型表单页，例如：
 
-- [`lib/pages/provider_form_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/provider_form_page.dart)
+- [`lib/pages/provider_form_page.dart`](../../../lib/pages/provider_form_page.dart)
 
 表单字段：
 
@@ -448,7 +448,7 @@
 
 ### 一、当前激活提供方与模型仍是唯一运行时入口
 
-[`lib/models/llm/configurable_http_llm.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart) 继续通过 repository 读取运行时配置，但来源改为当前激活提供方与模型。
+[`lib/models/llm/configurable_http_llm.dart`](../../../lib/models/llm/configurable_http_llm.dart) 继续通过 repository 读取运行时配置，但来源改为当前激活提供方与模型。
 
 这意味着：
 
@@ -465,7 +465,7 @@
 
 推荐新增一个轻量服务，例如：
 
-- [`lib/services/llm_model_test_service.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/llm_model_test_service.dart)
+- [`lib/services/llm_model_test_service.dart`](../../../lib/services/llm_model_test_service.dart)
 
 职责：
 
@@ -504,21 +504,21 @@
 
 ### 主要修改文件
 
-- [`config/local_defaults.json`](/Users/skka/flutterSpace/FlutterAIChat/config/local_defaults.json)
-- [`config/local_defaults.example.json`](/Users/skka/flutterSpace/FlutterAIChat/config/local_defaults.example.json)
-- [`lib/repositories/llm_local_defaults.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/repositories/llm_local_defaults.dart)
-- [`lib/repositories/app_settings_repository.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/repositories/app_settings_repository.dart)
-- [`lib/pages/settings_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/settings_page.dart)
-- [`lib/models/llm/configurable_http_llm.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart)
+- `config/local_defaults.json`
+- [`config/local_defaults.example.json`](../../../config/local_defaults.example.json)
+- [`lib/repositories/llm_local_defaults.dart`](../../../lib/repositories/llm_local_defaults.dart)
+- [`lib/repositories/app_settings_repository.dart`](../../../lib/repositories/app_settings_repository.dart)
+- [`lib/pages/settings_page.dart`](../../../lib/pages/settings_page.dart)
+- [`lib/models/llm/configurable_http_llm.dart`](../../../lib/models/llm/configurable_http_llm.dart)
 
 ### 建议新增文件
 
-- [`lib/models/llm/llm_provider_config.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_provider_config.dart)
-- [`lib/models/llm/llm_provider_model.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_provider_model.dart)
-- [`lib/models/llm/llm_selection_state.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/llm_selection_state.dart)
-- [`lib/pages/model_management_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/model_management_page.dart)
-- [`lib/pages/provider_form_page.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/provider_form_page.dart)
-- [`lib/services/llm_model_test_service.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/llm_model_test_service.dart)
+- [`lib/models/llm/llm_provider_config.dart`](../../../lib/models/llm/llm_provider_config.dart)
+- [`lib/models/llm/llm_provider_model.dart`](../../../lib/models/llm/llm_provider_model.dart)
+- [`lib/models/llm/llm_selection_state.dart`](../../../lib/models/llm/llm_selection_state.dart)
+- [`lib/pages/model_management_page.dart`](../../../lib/pages/model_management_page.dart)
+- [`lib/pages/provider_form_page.dart`](../../../lib/pages/provider_form_page.dart)
+- [`lib/services/llm_model_test_service.dart`](../../../lib/services/llm_model_test_service.dart)
 
 ## 测试策略
 

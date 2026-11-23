@@ -272,9 +272,9 @@ artifact 可以是最重要的消费方，但不是特殊协议。
 ## 相关文档
 
 - 需求 / 方案设计：
-  - [docs/superpowers/specs/2026-05-27-streaming-message-preview-and-projection-pipeline-design.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/superpowers/specs/2026-05-27-streaming-message-preview-and-projection-pipeline-design.md)
+  - [docs/superpowers/specs/2026-05-27-streaming-message-preview-and-projection-pipeline-design.md](../superpowers/specs/2026-05-27-streaming-message-preview-and-projection-pipeline-design.md)
 - 实现计划：
-  - [docs/superpowers/plans/2026-05-27-streaming-message-preview-and-projection-pipeline-implementation-plan.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/superpowers/plans/2026-05-27-streaming-message-preview-and-projection-pipeline-implementation-plan.md)
+  - [docs/superpowers/plans/2026-05-27-streaming-message-preview-and-projection-pipeline-implementation-plan.md](../superpowers/plans/2026-05-27-streaming-message-preview-and-projection-pipeline-implementation-plan.md)
 - 相关边界文档：
-  - [agent-loop-boundaries-and-decoupling.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/agent-loop-boundaries-and-decoupling.md)
-  - [provider-adapter-runtime-and-live-matrix.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/provider-adapter-runtime-and-live-matrix.md)
+  - [agent-loop-boundaries-and-decoupling.md](agent-loop-boundaries-and-decoupling.md)
+  - [provider-adapter-runtime-and-live-matrix.md](provider-adapter-runtime-and-live-matrix.md)

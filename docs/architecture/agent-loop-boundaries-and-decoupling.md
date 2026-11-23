@@ -199,7 +199,7 @@ Core 不应该直接承担：
 ### `AgentEventProcessor`
 
 文件：
-- [lib/controllers/agent_event_processor.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/controllers/agent_event_processor.dart)
+- [lib/controllers/agent_event_processor.dart](../../lib/controllers/agent_event_processor.dart)
 
 现状：
 
@@ -216,7 +216,7 @@ Core 不应该直接承担：
 ### `ChatBlockBuilder`
 
 文件：
-- [lib/services/chat_block_builder.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/chat_block_builder.dart)
+- [lib/services/chat_block_builder.dart](../../lib/services/chat_block_builder.dart)
 
 现状：
 
@@ -230,7 +230,7 @@ Core 不应该直接承担：
 ### `chat_ui_providers`
 
 文件：
-- [lib/providers/chat_ui_providers.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/providers/chat_ui_providers.dart)
+- [lib/providers/chat_ui_providers.dart](../../lib/providers/chat_ui_providers.dart)
 
 现状：
 
@@ -245,7 +245,7 @@ Core 不应该直接承担：
 ### `ChatTimelineRow`
 
 文件：
-- [lib/widgets/chat_timeline/chat_timeline_row.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/chat_timeline/chat_timeline_row.dart)
+- [lib/widgets/chat_timeline/chat_timeline_row.dart](../../lib/widgets/chat_timeline/chat_timeline_row.dart)
 
 现状：
 
@@ -258,7 +258,7 @@ Core 不应该直接承担：
 ### `ChatSendCoordinator`
 
 文件：
-- [lib/controllers/chat_send_coordinator.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/controllers/chat_send_coordinator.dart)
+- [lib/controllers/chat_send_coordinator.dart](../../lib/controllers/chat_send_coordinator.dart)
 
 现状：
 
@@ -272,7 +272,7 @@ Core 不应该直接承担：
 ### `ConfigurableHttpLLM`
 
 文件：
-- [lib/models/llm/configurable_http_llm.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart)
+- [lib/models/llm/configurable_http_llm.dart](../../lib/models/llm/configurable_http_llm.dart)
 
 现状：
 

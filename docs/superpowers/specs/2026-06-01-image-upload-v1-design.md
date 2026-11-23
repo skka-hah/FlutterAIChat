@@ -175,7 +175,7 @@ tool 文件系统能力保持独立：
 
 ### 6.3 数据库演进
 
-当前 [database_helper.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/database/database_helper.dart) 已有 `messages` 表与 JSON 辅助字段，但没有附件表。
+当前 [database_helper.dart](../../../lib/database/database_helper.dart) 已有 `messages` 表与 JSON 辅助字段，但没有附件表。
 
 建议新增表：
 
@@ -210,7 +210,7 @@ tool 文件系统能力保持独立：
 
 ### 7.1 输入区
 
-改造 [chat_input.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/chat_input.dart)：
+改造 [chat_input.dart](../../../lib/widgets/chat_input.dart)：
 
 - 在输入区增加图片入口按钮
 - 在文本框上方或下方增加已选图片横向列表
@@ -273,7 +273,7 @@ tool 文件系统能力保持独立：
 
 ## 9. Provider 能力矩阵
 
-当前 [provider_capabilities.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/models/llm/adapters/provider_capabilities.dart) 只表达：
+当前 [provider_capabilities.dart](../../../lib/models/llm/adapters/provider_capabilities.dart) 只表达：
 
 - `supportsPlannerStreaming`
 - `supportsParallelToolCalls`

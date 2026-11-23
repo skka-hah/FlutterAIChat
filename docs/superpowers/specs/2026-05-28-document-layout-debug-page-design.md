@@ -8,7 +8,7 @@
 - UI 调整后缺少固定回归样例，容易出现“修好一个样式，打坏另一个样式”的情况。
 - 现有 debug case 更偏发送链路、agent loop 和交互流程，不适合做纯渲染层排版回归。
 
-仓库中已经有成熟的真实渲染组件，例如 [AssistantDocBlock](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/assistant_doc_block.dart) 与 [FlutterMarkdownImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart)。因此本次不应该再造一套“近似 UI”，而应该提供一个稳定的、脱离 LLM 的真实渲染调试页。
+仓库中已经有成熟的真实渲染组件，例如 [AssistantDocBlock](../../../lib/widgets/chat_blocks/assistant_doc_block.dart) 与 [FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart)。因此本次不应该再造一套“近似 UI”，而应该提供一个稳定的、脱离 LLM 的真实渲染调试页。
 
 ## 目标
 
@@ -95,13 +95,13 @@
 
 新增独立页面，例如：
 
-- [layout_debug_page.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/pages/layout_debug_page.dart)
+- [layout_debug_page.dart](../../../lib/pages/layout_debug_page.dart)
 
-并在现有路由中注册固定入口。当前仓库已有 [RouteConstant](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/constants/route_constant.dart) 与 `MaterialApp.routes` 注册方式，因此本次延续相同模式，不额外引入新的导航框架。
+并在现有路由中注册固定入口。当前仓库已有 [RouteConstant](../../../lib/constants/route_constant.dart) 与 `MaterialApp.routes` 注册方式，因此本次延续相同模式，不额外引入新的导航框架。
 
 ### 二、与现有 `testPage` 的关系
 
-当前 [test_page.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/pages/test_page.dart) 只是零散实验页，不承载真实回复排版调试职责。
+当前 [test_page.dart](../../../lib/pages/test_page.dart) 只是零散实验页，不承载真实回复排版调试职责。
 
 本次不建议在旧 `testPage` 上继续堆功能，而是：
 
@@ -185,9 +185,9 @@
 
 首版核心复用链路：
 
-- [AssistantDocBlock](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/assistant_doc_block.dart)
-- [StableMarkdownBlock](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/chat_timeline/stable_markdown_block.dart)
-- [FlutterMarkdownImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart)
+- [AssistantDocBlock](../../../lib/widgets/chat_blocks/assistant_doc_block.dart)
+- [StableMarkdownBlock](../../../lib/widgets/chat_timeline/stable_markdown_block.dart)
+- [FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart)
 
 这样可以确保调试页中看到的：
 

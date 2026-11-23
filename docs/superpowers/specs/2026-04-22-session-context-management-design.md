@@ -7,7 +7,7 @@
 现状存在两个直接问题：
 
 1. 同一个 `group` 下的多轮连续对话不会自动进入下一轮 planner 的可见上下文。`TurnHarness` 当前传给 `AgentPlannerService` 的仍然主要是“当前 turn 的 transcript”，而不是“当前 session 的上下文投影”。
-2. 旧的 [`lib/models/context/context_strategies.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/context/context_strategies.dart) / [`lib/models/context/message_context_strategy.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/context/message_context_strategy.dart) 仍保留在仓库中，但它们只适用于“从单一消息列表中截取历史消息”的旧式模型，不再适配 `messages + chat_turns + chat_events + provider continuation + snapshot` 的新架构。
+2. 旧的 `lib/models/context/context_strategies.dart` / `lib/models/context/message_context_strategy.dart` 仍保留在仓库中，但它们只适用于“从单一消息列表中截取历史消息”的旧式模型，不再适配 `messages + chat_turns + chat_events + provider continuation + snapshot` 的新架构。
 
 这导致当前体验上表现为：
 
@@ -516,7 +516,7 @@ inputBudget = maxContextTokens - reservedOutputTokens - safetyMarginTokens
 
 ### 1. TurnHarness
 
-[`lib/services/turn_harness.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/turn_harness.dart) 在每次 `_continueTurnLoop()` 调用 planner 前，不再直接把“当前 turn transcript 映射消息”作为完整 planner 输入。
+[`lib/services/turn_harness.dart`](../../../lib/services/turn_harness.dart) 在每次 `_continueTurnLoop()` 调用 planner 前，不再直接把“当前 turn transcript 映射消息”作为完整 planner 输入。
 
 改为：
 
@@ -527,20 +527,20 @@ inputBudget = maxContextTokens - reservedOutputTokens - safetyMarginTokens
 
 ### 2. AgentPlannerService
 
-[`lib/services/agent_planner_service.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/agent_planner_service.dart) 保持“只负责 planner 决策”的边界，不承担 session 历史拼装逻辑。
+[`lib/services/agent_planner_service.dart`](../../../lib/services/agent_planner_service.dart) 保持“只负责 planner 决策”的边界，不承担 session 历史拼装逻辑。
 
 它接收的应该已经是整理好的 planner 消息列表。
 
 ### 3. DatabaseHelper / ChatStorage
 
-[`lib/database/database_helper.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/database/database_helper.dart) 与 [`lib/storage/chat_storage.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/storage/chat_storage.dart) 需要增加 `session_context_snapshots` 的建表与 CRUD 接口。
+[`lib/database/database_helper.dart`](../../../lib/database/database_helper.dart) 与 [`lib/storage/chat_storage.dart`](../../../lib/storage/chat_storage.dart) 需要增加 `session_context_snapshots` 的建表与 CRUD 接口。
 
 ### 4. 旧上下文策略清理
 
 以下内容应在本次改造中直接删除：
 
-- [`lib/models/context/context_strategies.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/context/context_strategies.dart)
-- [`lib/models/context/message_context_strategy.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/context/message_context_strategy.dart)
+- `lib/models/context/context_strategies.dart`
+- `lib/models/context/message_context_strategy.dart`
 
 同时清理：
 

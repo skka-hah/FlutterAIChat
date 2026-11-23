@@ -2,7 +2,7 @@
 
 ## 摘要
 
-当前项目的 token/context 预算仍以 [`ModelBudgetRegistry`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/model_budget_registry.dart) 内置静态表为主数据源，这在模型窗口普遍提升到 `200K`、`1M`，且不同 provider / gateway / openai-compatible 平台能力差异越来越大的情况下，已经明显不够用。
+当前项目的 token/context 预算仍以 [`ModelBudgetRegistry`](../../../lib/services/model_budget_registry.dart) 内置静态表为主数据源，这在模型窗口普遍提升到 `200K`、`1M`，且不同 provider / gateway / openai-compatible 平台能力差异越来越大的情况下，已经明显不够用。
 
 本设计将当前“静态预算表中心”的方案升级为“模型能力解析链中心”的方案：
 
@@ -22,7 +22,7 @@
 
 ### 1. `ModelBudgetRegistry` 主要依赖内置静态 profile
 
-当前 [`ModelBudgetRegistry`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/model_budget_registry.dart) 只支持：
+当前 [`ModelBudgetRegistry`](../../../lib/services/model_budget_registry.dart) 只支持：
 
 - exact match
 - family match
@@ -53,7 +53,7 @@
 
 ### 3. 当前 `maxOutputTokens` 分配策略无法利用更真实的模型上限
 
-当前 [`ConfigurableHttpLLM`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart) 中：
+当前 [`ConfigurableHttpLLM`](../../../lib/models/llm/configurable_http_llm.dart) 中：
 
 - `planner` 请求使用 `reservedOutputTokens`
 - `summary` / `webpageProcessing` / `sideTask` 使用 `reservedOutputTokens + reasoningReserveTokens`
@@ -466,7 +466,7 @@ built-in fallback 不需要远程刷新。
 
 ## 1. `SessionTokenBudgetService`
 
-[`SessionTokenBudgetService`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_token_budget_service.dart) 继续作为：
+[`SessionTokenBudgetService`](../../../lib/services/session_token_budget_service.dart) 继续作为：
 
 - compaction 正式预算计算器
 - planner-visible input usage ratio 计算器

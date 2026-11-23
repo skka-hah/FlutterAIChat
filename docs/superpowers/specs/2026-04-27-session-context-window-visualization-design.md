@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前项目已经完成 Session 级上下文管理重构，真实发给模型的 planner 可见上下文不再直接来自 UI `messages`，而是由 [`SessionContextService`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_context_service.dart) 统一构建。
+当前项目已经完成 Session 级上下文管理重构，真实发给模型的 planner 可见上下文不再直接来自 UI `messages`，而是由 [`SessionContextService`](../../../lib/services/session_context_service.dart) 统一构建。
 
 当前实现的主链路是：
 
@@ -11,8 +11,8 @@
 3. 读取最新 `session_context_snapshots`
 4. 读取 snapshot 边界之后的 completed turns
 5. 读取 current turn transcript
-6. 用 [`SessionContextProjector`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 投影为模型可见上下文
-7. 用 [`SessionTokenBudgetService`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_token_budget_service.dart) 估算 token 占用，并在必要时触发历史压缩
+6. 用 [`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 投影为模型可见上下文
+7. 用 [`SessionTokenBudgetService`](../../../lib/services/session_token_budget_service.dart) 估算 token 占用，并在必要时触发历史压缩
 
 当前项目已经具备较完整的内部上下文策略，但普通用户无法理解：
 
@@ -45,7 +45,7 @@
 
 ### 1. 上下文真实入口
 
-当前真实入口是 [`SessionContextService.buildPlannerMessages()`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_context_service.dart)。
+当前真实入口是 [`SessionContextService.buildPlannerMessages()`](../../../lib/services/session_context_service.dart)。
 
 planner 上下文固定由以下部分组成：
 
@@ -62,7 +62,7 @@ planner 上下文固定由以下部分组成：
 
 ### 2. 投影规则
 
-[`SessionContextProjector`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 当前真实实现会保留：
+[`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 当前真实实现会保留：
 
 - user message
 - assistant message
@@ -74,7 +74,7 @@ planner 上下文固定由以下部分组成：
 
 ### 3. 预算规则
 
-[`ModelBudgetRegistry`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/model_budget_registry.dart) 与 [`SessionTokenBudgetService`](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/services/session_token_budget_service.dart) 共同定义：
+[`ModelBudgetRegistry`](../../../lib/services/model_budget_registry.dart) 与 [`SessionTokenBudgetService`](../../../lib/services/session_token_budget_service.dart) 共同定义：
 
 - `maxContextTokens`
 - `reservedOutputTokens`
@@ -365,8 +365,8 @@ planner 可见 segment：
 
 实施时需要同步更新：
 
-- [`README.md`](/Users/zyb_wl/flutterSpace/FlutterAIChat/README.md)
-- [`docs/architecture/session-context-management.md`](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/architecture/session-context-management.md)
+- [`README.md`](../../../README.md)
+- [`docs/architecture/session-context-management.md`](../../architecture/session-context-management.md)
 
 特别是要修正文档中关于 `assistantToolCall` 投影规则的过期描述，统一以当前代码实现为准。
 

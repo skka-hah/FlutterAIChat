@@ -4,13 +4,13 @@
 
 当前仓库中的 Markdown 围栏代码块已经形成稳定的技术内容阅读表面：
 
-- [FlutterMarkdownImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/markdown/flutter_markdown_impl.dart) 负责 Markdown 主渲染链。
-- [CodeBlockWidget](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/markdown/code_widget.dart) 已接入 `flutter_highlight`，并通过 [TechnicalContentSurface](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/technical_content_surface.dart) 提供统一 header、背景和代码阅读氛围。
+- [FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart) 负责 Markdown 主渲染链。
+- [CodeBlockWidget](../../../lib/widgets/markdown/code_widget.dart) 已接入 `flutter_highlight`，并通过 [TechnicalContentSurface](../../../lib/widgets/technical_content_surface.dart) 提供统一 header、背景和代码阅读氛围。
 
 但 `Write/Edit` 结果卡片仍是另一套视觉结构：
 
-- [WriteToolResultCard](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/write_tool_result_card.dart) 与 [EditToolResultCard](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/edit_tool_result_card.dart) 使用普通信息卡片样式。
-- [FileChangePreview](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/file_change_preview.dart) 只保留行级 diff 背景和纯文本代码行，没有语法高亮。
+- [WriteToolResultCard](../../../lib/widgets/tool_renderers/write_tool_result_card.dart) 与 [EditToolResultCard](../../../lib/widgets/tool_renderers/edit_tool_result_card.dart) 使用普通信息卡片样式。
+- [FileChangePreview](../../../lib/widgets/tool_renderers/file_change_preview.dart) 只保留行级 diff 背景和纯文本代码行，没有语法高亮。
 
 这带来两个问题：
 
@@ -205,7 +205,7 @@
 
 ### 1. Markdown 高亮共享层
 
-- 修改 [code_widget.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/markdown/code_widget.dart)
+- 修改 [code_widget.dart](../../../lib/widgets/markdown/code_widget.dart)
 - 新增共享高亮 helper / widget
 
 需要完成：
@@ -222,7 +222,7 @@
 
 ### 3. `WriteToolResultCard`
 
-- 修改 [write_tool_result_card.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/write_tool_result_card.dart)
+- 修改 [write_tool_result_card.dart](../../../lib/widgets/tool_renderers/write_tool_result_card.dart)
 
 需要完成：
 
@@ -231,8 +231,8 @@
 
 ### 4. `FileChangePreview` 与 `EditToolResultCard`
 
-- 修改 [file_change_preview.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/file_change_preview.dart)
-- 修改 [edit_tool_result_card.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/.worktrees/file-tool-result-code-align/lib/widgets/tool_renderers/edit_tool_result_card.dart)
+- 修改 [file_change_preview.dart](../../../lib/widgets/tool_renderers/file_change_preview.dart)
+- 修改 [edit_tool_result_card.dart](../../../lib/widgets/tool_renderers/edit_tool_result_card.dart)
 
 需要完成：
 

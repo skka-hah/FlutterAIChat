@@ -254,12 +254,12 @@ turn 内可持久化的最小动作单元，例如：
 ## 推荐继续阅读
 
 - Agent Loop 架构基线：
-  [2026-04-13-agent-loop-architecture-baseline.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/2026-04-13-agent-loop-architecture-baseline.md)
+  [2026-04-13-agent-loop-architecture-baseline.md](2026-04-13-agent-loop-architecture-baseline.md)
 - Agent Loop 边界与解耦：
-  [agent-loop-boundaries-and-decoupling.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/agent-loop-boundaries-and-decoupling.md)
+  [agent-loop-boundaries-and-decoupling.md](agent-loop-boundaries-and-decoupling.md)
 - Session Context 管理：
-  [session-context-management.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/session-context-management.md)
+  [session-context-management.md](session-context-management.md)
 - Tool 展示边界：
-  [tool-presentation-event-boundary.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/tool-presentation-event-boundary.md)
+  [tool-presentation-event-boundary.md](tool-presentation-event-boundary.md)
 - 日志与排障：
-  [logging.md](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/logging.md)
+  [logging.md](logging.md)

@@ -138,7 +138,7 @@ Hybrid Reader 的含义是：以专业文章式阅读体验为主体，同时保
 
 ## Flutter 映射
 
-本阶段主要落点是 [FlutterMarkdownImpl](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart) 中的 `MarkdownStyleSheet`。
+本阶段主要落点是 [FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart) 中的 `MarkdownStyleSheet`。
 
 建议调整的 style sheet 项：
 
@@ -169,7 +169,7 @@ Hybrid Reader 的含义是：以专业文章式阅读体验为主体，同时保
 
 ## 流式态关系
 
-当前 [StreamingResponseBlock](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/streaming_response_block.dart) 使用 `SelectableText` 渲染生成中的文本。它不需要在本阶段变成完整 Markdown 渲染器。
+当前 StreamingResponseBlock (`lib/widgets/chat_blocks/streaming_response_block.dart`) 使用 `SelectableText` 渲染生成中的文本。它不需要在本阶段变成完整 Markdown 渲染器。
 
 建议原则：
 

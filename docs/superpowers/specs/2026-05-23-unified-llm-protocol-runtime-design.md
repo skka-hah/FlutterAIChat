@@ -55,7 +55,7 @@
 
 ### 问题一：`ConfigurableHttpLLM` 同时承担协议编排与协议执行
 
-当前文件 [lib/models/llm/configurable_http_llm.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart) 同时负责：
+当前文件 [lib/models/llm/configurable_http_llm.dart](../../../lib/models/llm/configurable_http_llm.dart) 同时负责：
 
 - 选协议
 - 组装 payload
@@ -72,7 +72,7 @@
 
 ### 问题二：`ApiStreamParser` 混合了解析协议文本与投影业务语义
 
-[lib/models/llm/api_stream_parser.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/api_stream_parser.dart) 当前承担：
+lib/models/llm/api_stream_parser.dart 当前承担：
 
 - responses SSE 文本解析
 - chat completions SSE 文本解析
@@ -189,7 +189,7 @@
 
 #### 请求
 
-继续由 [lib/models/llm/adapters/sdk_chat_completions_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/sdk_chat_completions_adapter.dart) 构建 typed `ChatCompletionCreateRequest`，但不再把它仅仅作为 `toJson()` 的中间过程。
+继续由 [lib/models/llm/adapters/sdk_chat_completions_adapter.dart](../../../lib/models/llm/adapters/sdk_chat_completions_adapter.dart) 构建 typed `ChatCompletionCreateRequest`，但不再把它仅仅作为 `toJson()` 的中间过程。
 
 #### 执行
 
@@ -202,13 +202,13 @@
 
 #### 流式
 
-复用已有 [lib/models/llm/adapters/sdk_stream_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/sdk_stream_adapter.dart) 思路，但抽象成通用 `ChatCompletionsStreamEventAdapter`，作为 runtime 的 companion。
+复用已有 lib/models/llm/adapters/sdk_stream_adapter.dart 思路，但抽象成通用 `ChatCompletionsStreamEventAdapter`，作为 runtime 的 companion。
 
 ### `responses` 的落地方式
 
 #### 请求
 
-当前 [lib/models/llm/adapters/responses_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/responses_adapter.dart) 负责手写 `input` / `tools` / `reasoning` 结构。本次将新增 `SdkResponsesAdapter`，构建 typed `CreateResponseRequest`、`ResponseInput`、`ResponseTool`。
+当前 [lib/models/llm/adapters/responses_adapter.dart](../../../lib/models/llm/adapters/responses_adapter.dart) 负责手写 `input` / `tools` / `reasoning` 结构。本次将新增 `SdkResponsesAdapter`，构建 typed `CreateResponseRequest`、`ResponseInput`、`ResponseTool`。
 
 #### 执行
 
@@ -260,13 +260,13 @@
 
 ### 修改
 
-- [lib/models/llm/adapters/api_style_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/api_style_adapter.dart)
-- [lib/models/llm/adapters/sdk_chat_completions_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/sdk_chat_completions_adapter.dart)
-- [lib/models/llm/adapters/responses_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/responses_adapter.dart)
-- [lib/models/llm/adapters/anthropic_messages_adapter.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/adapters/anthropic_messages_adapter.dart)
-- [lib/models/llm/configurable_http_llm.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/configurable_http_llm.dart)
-- [lib/models/llm/api_stream_parser.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/models/llm/api_stream_parser.dart)
-- [test/models/llm/configurable_http_llm_test.dart](/Users/skka/flutterSpace/FlutterAIChat/test/models/llm/configurable_http_llm_test.dart)
+- [lib/models/llm/adapters/api_style_adapter.dart](../../../lib/models/llm/adapters/api_style_adapter.dart)
+- [lib/models/llm/adapters/sdk_chat_completions_adapter.dart](../../../lib/models/llm/adapters/sdk_chat_completions_adapter.dart)
+- [lib/models/llm/adapters/responses_adapter.dart](../../../lib/models/llm/adapters/responses_adapter.dart)
+- [lib/models/llm/adapters/anthropic_messages_adapter.dart](../../../lib/models/llm/adapters/anthropic_messages_adapter.dart)
+- [lib/models/llm/configurable_http_llm.dart](../../../lib/models/llm/configurable_http_llm.dart)
+- lib/models/llm/api_stream_parser.dart
+- [test/models/llm/configurable_http_llm_test.dart](../../../test/models/llm/configurable_http_llm_test.dart)
 
 ## 兼容性与迁移策略
 

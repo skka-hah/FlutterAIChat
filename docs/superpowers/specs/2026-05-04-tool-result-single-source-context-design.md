@@ -4,10 +4,10 @@
 
 当前 tool use 架构已经具备 append-only transcript、turn ledger、Session Context 三层边界，但 `toolResult` 的正式语义仍未完全收口：
 
-- [`ToolResult`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/tool/tool_result.dart) 一度同时承载 `summary`、`uiSummaryText`、`contextText` 等多套文本语义
-- [`ToolPreparationResult`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/tool_call_service.dart) 曾承载 `additionalContextMessages`
-- [`DecisionToolCallExecutor`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/decision_tool_call_executor.dart) / [`TurnHarness`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/turn_harness.dart) 会把 tool result 的短摘要写入 transcript `content`
-- [`SessionContextProjector`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 需要决定“下一轮 planner 究竟应该看哪一份 tool result 语义”
+- [`ToolResult`](../../../lib/models/tool/tool_result.dart) 一度同时承载 `summary`、`uiSummaryText`、`contextText` 等多套文本语义
+- [`ToolPreparationResult`](../../../lib/services/tool_call_service.dart) 曾承载 `additionalContextMessages`
+- [`DecisionToolCallExecutor`](../../../lib/services/decision_tool_call_executor.dart) / [`TurnHarness`](../../../lib/services/turn_harness.dart) 会把 tool result 的短摘要写入 transcript `content`
+- [`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 需要决定“下一轮 planner 究竟应该看哪一份 tool result 语义”
 
 已经暴露出来的表面问题是：`web_search` 在上下文回放时只回到摘要，而不是实际结果。  
 但根因不是某一个 tool 没有写好某个文本字段，而是 `ToolResult` contract 曾经允许多套并行文本来源共存，导致系统可以随时退回“拿摘要充当语义”。
@@ -214,7 +214,7 @@ UI、timeline、debug card、presentation mapper 都只能消费正式字段。
 
 建议将 `toolResult` / `toolError` 的 planner-visible 文本投影收敛到一个专门职责中：
 
-- 可以继续放在 [`SessionContextProjector`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 内部
+- 可以继续放在 [`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 内部
 - 也可以拆为更窄的 `ToolResultContextProjector` / `ToolResultContextTransformer`
 
 但职责必须明确：
@@ -263,7 +263,7 @@ UI、timeline、debug card、presentation mapper 都只能消费正式字段。
 
 ### 2. Tool orchestration 包装
 
-[`ToolOrchestratorService`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/tool_orchestrator_service.dart) 在附加 `toolAccess` / `executionPolicy` 时，必须完整保留：
+[`ToolOrchestratorService`](../../../lib/services/tool_orchestrator_service.dart) 在附加 `toolAccess` / `executionPolicy` 时，必须完整保留：
 
 - `summary`
 - `data`
@@ -287,7 +287,7 @@ UI、timeline、debug card、presentation mapper 都只能消费正式字段。
 
 ### 4. Session context projection
 
-[`SessionContextProjector`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 对 `toolResult` / `toolError` 的统一规则改为：
+[`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 对 `toolResult` / `toolError` 的统一规则改为：
 
 1. 解析 `ToolResult.fromJson(payload)`
 2. 调用统一的 tool-result context projector
@@ -312,8 +312,8 @@ UI、timeline、debug card、presentation mapper 都只能消费正式字段。
 
 本轮需要统一更新并互相引用以下文档：
 
-- [`docs/architecture/append-only-transcript.md`](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/append-only-transcript.md)
-- [`docs/architecture/session-context-management.md`](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/session-context-management.md)
+- [`docs/architecture/append-only-transcript.md`](../../architecture/append-only-transcript.md)
+- [`docs/architecture/session-context-management.md`](../../architecture/session-context-management.md)
 - 本 spec
 
 要求文档共同声明：

@@ -436,7 +436,7 @@ artifact 不应拥有独立主题对象，而应复用项目主主题系统中�
 
 ### 6. 与现有 `AppThemeSpec` 的对齐方式
 
-实现方向上，不建议新增一套 artifact 专属 `ThemeSpec`，而应在现有 [app_theme_spec.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/theme/app_theme_spec.dart) 上补充可视化所需的全局语义 token。
+实现方向上，不建议新增一套 artifact 专属 `ThemeSpec`，而应在现有 [app_theme_spec.dart](../../../lib/theme/app_theme_spec.dart) 上补充可视化所需的全局语义 token。
 
 建议原则：
 

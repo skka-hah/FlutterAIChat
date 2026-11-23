@@ -13,7 +13,7 @@
 ## 相关设计
 
 - Spec: `docs/superpowers/specs/2026-06-19-long-term-memory-storage-design.md`
-- Reference: `/Users/skka/vsSpace/Claude-Code/docs/12-long-term-memory.zh-CN.md`
+- Reference: `Claude-Code/docs/12-long-term-memory.zh-CN.md`
 - Related: `docs/architecture/file-sandbox-architecture.md`
 - Related: `docs/superpowers/specs/2026-06-02-agent-file-access-sandbox-unification-design.md`
 - Related: `docs/superpowers/specs/2026-06-02-workspace-v1-file-container-design.md`

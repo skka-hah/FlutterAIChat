@@ -231,7 +231,7 @@ Expected: FAIL because the provider and bottom bar do not exist yet.
 
 - [ ] **Step 6: Integrate the bar into ChatPage**
 
-在 [chat_page.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/pages/chat_page.dart) 中将其放在：
+在 [chat_page.dart](../../../lib/pages/chat_page.dart) 中将其放在：
 
 - `ChatMessageList`
 - `ChatInput`

@@ -4,9 +4,9 @@
 
 当前项目中的 Markdown 渲染已经不是两套独立、清晰可替换的实现，而是一个“统一入口 + 内容分流 + 局部共享部件 + 分支内定制 patch”的混合系统：
 
-- [FlutterMarkdownImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart) 作为统一入口，根据内容是否包含表格、是否包含数学公式来决定走哪条底层渲染链。
+- [FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart) 作为统一入口，根据内容是否包含表格、是否包含数学公式来决定走哪条底层渲染链。
 - 普通 Markdown 走 `flutter_markdown`。
-- 含表格且不含数学公式的 Markdown 走 [MarkdownWidgetImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/markdown_widget_impl.dart)，底层依赖 `markdown_widget`。
+- 含表格且不含数学公式的 Markdown 走 [MarkdownWidgetImpl](../../../lib/widgets/markdown/markdown_widget_impl.dart)，底层依赖 `markdown_widget`。
 - 两条路径共享 `AppTypography`、`AppThemeSpec`、`CodeBlockWidget` 等上层视觉资产，但基础段落、列表、强调、表格等 block 的实现语义并不统一。
 
 这导致了一个结构性问题：
@@ -102,7 +102,7 @@
 
 ### 一、统一入口保留
 
-[FlutterMarkdownImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart) 继续作为唯一 Markdown 渲染入口。
+[FlutterMarkdownImpl](../../../lib/widgets/markdown/flutter_markdown_impl.dart) 继续作为唯一 Markdown 渲染入口。
 
 但其职责收敛为：
 
@@ -114,7 +114,7 @@
 
 ### 二、移除表格专用第二引擎
 
-[MarkdownWidgetImpl](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/markdown_widget_impl.dart) 以及其专用列表 patch 不再保留在主渲染链中。
+[MarkdownWidgetImpl](../../../lib/widgets/markdown/markdown_widget_impl.dart) 以及其专用列表 patch 不再保留在主渲染链中。
 
 这意味着：
 
@@ -143,7 +143,7 @@
 
 ### 1. 渲染入口
 
-- 修改 [flutter_markdown_impl.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart)
+- 修改 [flutter_markdown_impl.dart](../../../lib/widgets/markdown/flutter_markdown_impl.dart)
 
 需要完成：
 
@@ -153,7 +153,7 @@
 
 ### 2. 表格特化实现
 
-- 删除或废弃 [markdown_widget_impl.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/markdown_widget_impl.dart)
+- 删除或废弃 [markdown_widget_impl.dart](../../../lib/widgets/markdown/markdown_widget_impl.dart)
 
 需要完成：
 
@@ -162,7 +162,7 @@
 
 ### 3. 表格附属视觉部件
 
-- 评估 [table_edge_fade_scroll_shell.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/widgets/markdown/table_edge_fade_scroll_shell.dart) 是否仍被其他地方使用
+- 评估 [table_edge_fade_scroll_shell.dart](../../../lib/widgets/markdown/table_edge_fade_scroll_shell.dart) 是否仍被其他地方使用
 
 本次策略：
 
@@ -171,7 +171,7 @@
 
 ### 4. 测试层
 
-- 修改 [test/widgets/chat_blocks/chat_blocks_test.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/test/widgets/chat_blocks/chat_blocks_test.dart)
+- 修改 [test/widgets/chat_blocks/chat_blocks_test.dart](../../../test/widgets/chat_blocks/chat_blocks_test.dart)
 
 需要完成：
 

@@ -4,7 +4,7 @@
 
 **Goal:** 让聊天时间线中的完成态 Markdown 在长列表滚动和流式更新期间更稳定，同时把更新时间收紧到更小的 row 范围，减少不必要的重建与重复布局。
 
-**Architecture:** 保留现有 `flutter_markdown` 主渲染链路，但把 [chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 从“在 build 中直接拼整组 widgets”改成“先生成稳定的时间线 item 描述，再渲染独立 row”。完成态 Markdown row 使用稳定 `ValueKey` 和可保活壳层，优先复用现有 Markdown state；如果第一阶段验证后仍有明显抖动，再基于已拆分的边界进入第二阶段编译缓存。
+**Architecture:** 保留现有 `flutter_markdown` 主渲染链路，但把 [chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 从“在 build 中直接拼整组 widgets”改成“先生成稳定的时间线 item 描述，再渲染独立 row”。完成态 Markdown row 使用稳定 `ValueKey` 和可保活壳层，优先复用现有 Markdown state；如果第一阶段验证后仍有明显抖动，再基于已拆分的边界进入第二阶段编译缓存。
 
 **Tech Stack:** Flutter 3.29.2 / Riverpod / flutter_markdown / Flutter widget tests
 

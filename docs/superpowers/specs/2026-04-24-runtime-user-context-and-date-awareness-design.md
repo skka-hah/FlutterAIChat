@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前项目已经完成了基于 agent loop 的主链路改造，planner 的上下文主要由 [`SessionContextService`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_service.dart) 构建。但在真实使用中仍存在一个明显问题：
+当前项目已经完成了基于 agent loop 的主链路改造，planner 的上下文主要由 [`SessionContextService`](../../../lib/services/session_context_service.dart) 构建。但在真实使用中仍存在一个明显问题：
 
 - 模型不知道“今天是哪一天”
 - 当用户要求搜索“最新新闻”“最新文档”“最近变化”时，模型可能错误使用去年的年份构造查询
@@ -173,8 +173,8 @@ Do not mention this context unless it is actually relevant.
 
 `userContext` 接到两处：
 
-1. [`SessionContextService.buildPlannerMessages()`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_service.dart)
-2. [`TranscriptBuilderService.buildFinalAnswerMessages()`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/transcript_builder_service.dart)
+1. [`SessionContextService.buildPlannerMessages()`](../../../lib/services/session_context_service.dart)
+2. [`TranscriptBuilderService.buildFinalAnswerMessages()`](../../../lib/services/transcript_builder_service.dart)
 
 在两个入口里，`userContext` 都应位于真实用户消息之前。
 

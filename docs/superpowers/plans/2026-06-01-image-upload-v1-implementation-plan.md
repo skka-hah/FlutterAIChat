@@ -820,5 +820,5 @@ Record:
 ## Notes
 
 - 该计划基于已确认的 spec：
-  - [2026-06-01-image-upload-v1-design.md](/Users/zyb_wl/flutterSpace/FlutterAIChat/docs/superpowers/specs/2026-06-01-image-upload-v1-design.md)
+  - [2026-06-01-image-upload-v1-design.md](../specs/2026-06-01-image-upload-v1-design.md)
 - 按 developer instruction，本次没有使用 subagent 做计划文档审阅，因为当前会话未获得显式 delegation 授权；执行前可由人工或后续单独会话补做计划审阅。

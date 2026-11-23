@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前项目已经完成了基于 agent loop 的主链路改造，planner 可见上下文主要由 [`SessionContextService`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_service.dart) 构建，再由 [`SessionContextProjector`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 将 turn transcript 与历史 turn 投影为模型输入。
+当前项目已经完成了基于 agent loop 的主链路改造，planner 可见上下文主要由 [`SessionContextService`](../../../lib/services/session_context_service.dart) 构建，再由 [`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 将 turn transcript 与历史 turn 投影为模型输入。
 
 真实使用中暴露出一个稳定问题：
 
@@ -34,7 +34,7 @@
 
 ### 1. 当前上下文层把 tool transcript 扁平化成了普通消息
 
-[`SessionContextProjector`](/Users/skka/flutterSpace/FlutterAIChat/lib/services/session_context_projector.dart) 当前会：
+[`SessionContextProjector`](../../../lib/services/session_context_projector.dart) 当前会：
 
 - 将 `userMessage` 投影为普通 `user` 消息
 - 将 `assistantPlannerMessage` / `finalAnswer` 投影为普通 `assistant` 消息

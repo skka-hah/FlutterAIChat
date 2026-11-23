@@ -2,11 +2,11 @@
 
 ## 背景
 
-当前聊天时间线中的完成态回答主要通过 [chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart)、[final_response_block.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/final_response_block.dart)、[assistant_doc_block.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/assistant_doc_block.dart) 和 [flutter_markdown_impl.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart) 渲染。用户反馈在长列表滚动过程中，可以感受到轻微的 Markdown 内容偏移与站位变化，同时也怀疑 Markdown 解析存在过于频繁的实时触发。
+当前聊天时间线中的完成态回答主要通过 [chat_message_list.dart](../../../lib/widgets/chat_message_list.dart)、[final_response_block.dart](../../../lib/widgets/chat_blocks/final_response_block.dart)、[assistant_doc_block.dart](../../../lib/widgets/chat_blocks/assistant_doc_block.dart) 和 [flutter_markdown_impl.dart](../../../lib/widgets/markdown/flutter_markdown_impl.dart) 渲染。用户反馈在长列表滚动过程中，可以感受到轻微的 Markdown 内容偏移与站位变化，同时也怀疑 Markdown 解析存在过于频繁的实时触发。
 
 结合当前实现和补充调研，问题更接近以下组合效应，而不是单一的“Markdown 每帧重新解析”：
 
-1. `messagesProvider` 中任意消息更新都会触发 [ChatMessageList](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 重新构造整段时间线。
+1. `messagesProvider` 中任意消息更新都会触发 [ChatMessageList](../../../lib/widgets/chat_message_list.dart) 重新构造整段时间线。
 2. 流式输出阶段 UI 刷新频率较高，导致父级列表与可见区 item 更容易反复 build。
 3. 完成态消息虽然使用 `flutter_markdown`，但长列表中的 item 在滚动、插入历史消息、父级重建时仍会重新参与 layout / build。
 4. 流式阶段使用纯文本组件，完成后切换为 Markdown 组件，天然存在一次布局语义变化。
@@ -41,7 +41,7 @@
 
 ### 1. 时间线组装与渲染耦合在同一组件中
 
-[chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 当前直接监听 `messagesProvider`，在 `build()` 中排序消息、拼装 turn segment、映射 assistant blocks，并立即生成整组 timeline widgets。该结构让“数据变化范围”和“UI 重建范围”耦合过紧。
+[chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 当前直接监听 `messagesProvider`，在 `build()` 中排序消息、拼装 turn segment、映射 assistant blocks，并立即生成整组 timeline widgets。该结构让“数据变化范围”和“UI 重建范围”耦合过紧。
 
 ### 2. `flutter_markdown` 自带缓存无法覆盖 item 身份不稳定的问题
 
@@ -49,7 +49,7 @@
 
 ### 3. 流式阶段与完成阶段渲染语义不同
 
-[streaming_response_block.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/streaming_response_block.dart) 使用轻量文本；完成后切换为 `FinalResponseBlock` / `AssistantDocBlock` 中的 Markdown。这个两阶段策略本身合理，但需要降低切换后旧消息继续抖动的概率。
+streaming_response_block.dart (`lib/widgets/chat_blocks/streaming_response_block.dart`) 使用轻量文本；完成后切换为 `FinalResponseBlock` / `AssistantDocBlock` 中的 Markdown。这个两阶段策略本身合理，但需要降低切换后旧消息继续抖动的概率。
 
 ### 4. 当前仓库已有两套 Markdown 能力
 
@@ -139,7 +139,7 @@
 
 ### 1. 将时间线拆成稳定 item 描述，而不是在 `build()` 中直接生成整组 widget
 
-[chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart) 需要从“消息列表 -> widget 列表”的直接映射，调整为：
+[chat_message_list.dart](../../../lib/widgets/chat_message_list.dart) 需要从“消息列表 -> widget 列表”的直接映射，调整为：
 
 1. 消息列表 -> 时间线 item 描述列表。
 2. `SliverList` 基于 item 描述渲染稳定 row。
@@ -195,20 +195,20 @@
 
 ### 主要修改
 
-1. [lib/widgets/chat_message_list.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_message_list.dart)
+1. [lib/widgets/chat_message_list.dart](../../../lib/widgets/chat_message_list.dart)
    负责时间线 item 描述生成、`SliverList` 绑定、稳定 key 与分页锚点保持。
-2. [lib/widgets/chat_blocks/final_response_block.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/final_response_block.dart)
+2. [lib/widgets/chat_blocks/final_response_block.dart](../../../lib/widgets/chat_blocks/final_response_block.dart)
    如有必要，补充更稳定的完成态渲染壳层。
-3. [lib/widgets/chat_blocks/assistant_doc_block.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/assistant_doc_block.dart)
+3. [lib/widgets/chat_blocks/assistant_doc_block.dart](../../../lib/widgets/chat_blocks/assistant_doc_block.dart)
    与完成态分析块的 Markdown 复用策略对齐。
-4. [lib/widgets/markdown/flutter_markdown_impl.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/markdown/flutter_markdown_impl.dart)
+4. [lib/widgets/markdown/flutter_markdown_impl.dart](../../../lib/widgets/markdown/flutter_markdown_impl.dart)
    保持主渲染实现，但为后续缓存或稳定化封装留出清晰边界。
 
 ### 测试修改
 
-1. [test/widgets/chat_message_list_test.dart](/Users/skka/flutterSpace/FlutterAIChat/test/widgets/chat_message_list_test.dart)
+1. [test/widgets/chat_message_list_test.dart](../../../test/widgets/chat_message_list_test.dart)
    补时间线 item 稳定渲染与 block 不误切换的覆盖。
-2. [test/widgets/chat_blocks/chat_blocks_test.dart](/Users/skka/flutterSpace/FlutterAIChat/test/widgets/chat_blocks/chat_blocks_test.dart)
+2. [test/widgets/chat_blocks/chat_blocks_test.dart](../../../test/widgets/chat_blocks/chat_blocks_test.dart)
    补完成态 Markdown 壳层或稳定性语义的测试。
 
 ## 测试策略
@@ -247,5 +247,5 @@
 ## 兼容性与文档
 
 1. 本次不涉及数据库迁移。
-2. 若最终实现引入新的时间线 item 结构或 Markdown 缓存壳层，需要同步更新 [README.md](/Users/skka/flutterSpace/FlutterAIChat/README.md) 中关于消息展示结构的描述。
-3. 若实施后新增了明确的性能约束或实现规范，应补充到 [AGENTS.md](/Users/skka/flutterSpace/FlutterAIChat/AGENTS.md)。
+2. 若最终实现引入新的时间线 item 结构或 Markdown 缓存壳层，需要同步更新 [README.md](../../../README.md) 中关于消息展示结构的描述。
+3. 若实施后新增了明确的性能约束或实现规范，应补充到 [AGENTS.md](../../../AGENTS.md)。

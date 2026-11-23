@@ -12,7 +12,7 @@
 
 ## 执行原则
 
-- 严格以 [2026-03-29-toolcall-ui-design-system-design.md](/Users/skka/flutterSpace/FlutterAIChat/docs/superpowers/specs/2026-03-29-toolcall-ui-design-system-design.md) 为准。
+- 严格以 [2026-03-29-toolcall-ui-design-system-design.md](../specs/2026-03-29-toolcall-ui-design-system-design.md) 为准。
 - 本计划改为 `TDD`：
   - 状态机
   - block 映射

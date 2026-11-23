@@ -129,9 +129,9 @@ artifact 相关补充：
 
 实现与防漂移约束：
 
-- 代码 contract 见 [`lib/models/tool/tool_result.dart`](/Users/skka/flutterSpace/FlutterAIChat/lib/models/tool/tool_result.dart)
-- transcript-only 约束见 [`append-only-transcript.md`](/Users/skka/flutterSpace/FlutterAIChat/docs/architecture/append-only-transcript.md)
-- 本轮收口设计见 [`2026-05-04-tool-result-single-source-context-design.md`](/Users/skka/flutterSpace/FlutterAIChat/docs/superpowers/specs/2026-05-04-tool-result-single-source-context-design.md)
+- 代码 contract 见 [`lib/models/tool/tool_result.dart`](../../lib/models/tool/tool_result.dart)
+- transcript-only 约束见 [`append-only-transcript.md`](append-only-transcript.md)
+- 本轮收口设计见 [`2026-05-04-tool-result-single-source-context-design.md`](../superpowers/specs/2026-05-04-tool-result-single-source-context-design.md)
 
 ### SessionTokenBudgetService
 

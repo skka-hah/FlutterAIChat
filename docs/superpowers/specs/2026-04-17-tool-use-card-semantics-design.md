@@ -5,9 +5,9 @@
 当前仓库已经具备一套基础可用的 tool use 展示链路：
 
 - `ChatBlockBuilder` 会把 assistant turn 投影成 `toolWorkflow`、`toolResultSummary`、`structuredOutput` 等 block
-- [lib/widgets/chat_blocks/tool_workflow_card.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/tool_workflow_card.dart) 已支持步骤折叠、当前步骤展开和确认按钮
-- [lib/widgets/chat_blocks/tool_result_summary_row.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/tool_result_summary_row.dart) 已支持轻量结果摘要
-- [lib/widgets/interaction/ask_user_question_card.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/interaction/ask_user_question_card.dart) 已支持消息内交互问答
+- [lib/widgets/chat_blocks/tool_workflow_card.dart](../../../lib/widgets/chat_blocks/tool_workflow_card.dart) 已支持步骤折叠、当前步骤展开和确认按钮
+- [lib/widgets/chat_blocks/tool_result_summary_row.dart](../../../lib/widgets/chat_blocks/tool_result_summary_row.dart) 已支持轻量结果摘要
+- [lib/widgets/interaction/ask_user_question_card.dart](../../../lib/widgets/interaction/ask_user_question_card.dart) 已支持消息内交互问答
 
 但当前 UI 仍有两个结构性问题：
 
@@ -465,7 +465,7 @@
 
 ### ToolWorkflowCard
 
-[lib/widgets/chat_blocks/tool_workflow_card.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/tool_workflow_card.dart)
+[lib/widgets/chat_blocks/tool_workflow_card.dart](../../../lib/widgets/chat_blocks/tool_workflow_card.dart)
 
 建议职责调整为：
 
@@ -475,7 +475,7 @@
 
 ### ToolResultSummaryRow
 
-[lib/widgets/chat_blocks/tool_result_summary_row.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/chat_blocks/tool_result_summary_row.dart)
+[lib/widgets/chat_blocks/tool_result_summary_row.dart](../../../lib/widgets/chat_blocks/tool_result_summary_row.dart)
 
 建议不要继续作为所有 tool result 的唯一结果组件。
 
@@ -487,7 +487,7 @@
 
 ### AskUserQuestionCard
 
-[lib/widgets/interaction/ask_user_question_card.dart](/Users/skka/flutterSpace/FlutterAIChat/lib/widgets/interaction/ask_user_question_card.dart)
+[lib/widgets/interaction/ask_user_question_card.dart](../../../lib/widgets/interaction/ask_user_question_card.dart)
 
 建议重构为新的 `InteractionCard` 语言：
 

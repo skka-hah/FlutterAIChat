@@ -69,8 +69,8 @@
 
 项目内已经补充了对 OpenAI Responses reasoning item 的解析支持，位置：
 
-- [api_stream_parser.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/lib/models/llm/api_stream_parser.dart)
-- [api_stream_parser_test.dart](/Users/zyb_wl/flutterSpace/FlutterAIChat/test/models/llm/api_stream_parser_test.dart)
+- api_stream_parser.dart (`lib/models/llm/api_stream_parser.dart`)
+- api_stream_parser_test.dart (`test/models/llm/api_stream_parser_test.dart`)
 
 该解析器会：
 
