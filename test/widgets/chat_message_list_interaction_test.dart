@@ -16,6 +16,59 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('external question uses the shared timeline card', (tester) async {
+    const reference = ChatBackendInteractionReference(
+      backendId: 'dsh',
+      executionId: 'session-a',
+      interactionId: 'question-a',
+      kind: 'question',
+      appSessionId: 12,
+    );
+    final container = ProviderContainer();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+    });
+    container.read(currentGroupProvider.notifier).state =
+        ChatGroup(id: 12, title: 'DSH', backendId: 'dsh');
+    container.read(chatBackendPendingInteractionsForSessionProvider(12).notifier).state = [
+      const ChatBackendPendingInteraction(
+        reference: reference,
+        title: 'Question',
+        prompt: '',
+        actions: ['cancel'],
+        questions: [
+          ChatBackendQuestion(
+            id: 'color',
+            prompt: 'Choose a color',
+            detail: 'Details from DSH',
+            allowCustom: false,
+            options: [ChatBackendQuestionOption(label: 'Blue')],
+          ),
+        ],
+      ),
+    ];
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const Scaffold(body: ChatMessageList()),
+        ),
+      ),
+    );
+
+    expect(find.byType(AskUserQuestionCard), findsOneWidget);
+    expect(find.text('Details from DSH'), findsOneWidget);
+    expect(find.text('取消问答'), findsOneWidget);
+    expect(find.text('Other'), findsNothing);
+    expect(find.text('跳过'), findsNothing);
+    await tester.tap(find.text('Blue'));
+    await tester.pump();
+    expect(container.read(questionCardDraftsProvider)[reference.presentationKey]
+        ?.selectedOptionLabelsByQuestionId['color'], ['Blue']);
+  });
+
   testWidgets(
       'active ask user question prompt renders full card in message list',
       (tester) async {

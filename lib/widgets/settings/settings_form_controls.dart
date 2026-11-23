@@ -16,8 +16,11 @@ class SettingsTextInputField extends StatelessWidget {
     this.focusNode,
     this.validator,
     this.onChanged,
+    this.onFieldSubmitted,
     this.keyboardType,
     this.textInputAction,
+    this.obscureText = false,
+    this.errorText,
   });
 
   final String label;
@@ -27,8 +30,13 @@ class SettingsTextInputField extends StatelessWidget {
   final FocusNode? focusNode;
   final FormFieldValidator<String>? validator;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onFieldSubmitted;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
+  final String? errorText;
+
+  /// Conceals credentials and disables keyboard suggestions for this field.
+  final bool obscureText;
 
   @override
   Widget build(BuildContext context) {
@@ -55,8 +63,12 @@ class SettingsTextInputField extends StatelessWidget {
           focusNode: focusNode,
           validator: validator,
           onChanged: onChanged,
+          onFieldSubmitted: onFieldSubmitted,
           keyboardType: keyboardType,
           textInputAction: textInputAction,
+          obscureText: obscureText,
+          autocorrect: !obscureText,
+          enableSuggestions: !obscureText,
           style: AppTypography.uiStyle(
             color: palette.text,
             fontSize: 14,
@@ -65,6 +77,7 @@ class SettingsTextInputField extends StatelessWidget {
           ),
           decoration: InputDecoration(
             hintText: hintText,
+            errorText: errorText,
             hintStyle: AppTypography.uiStyle(
               color: palette.placeholder,
               fontSize: 14,

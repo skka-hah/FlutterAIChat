@@ -19,18 +19,20 @@ class QuestionCardDraft {
   }) {
     return QuestionCardDraft(
       currentQuestionIndex: currentQuestionIndex ?? this.currentQuestionIndex,
-      selectedOptionLabelsByQuestionId:
-          selectedOptionLabelsByQuestionId ?? this.selectedOptionLabelsByQuestionId,
-      otherTextByQuestionId: otherTextByQuestionId ?? this.otherTextByQuestionId,
+      selectedOptionLabelsByQuestionId: selectedOptionLabelsByQuestionId ??
+          this.selectedOptionLabelsByQuestionId,
+      otherTextByQuestionId:
+          otherTextByQuestionId ?? this.otherTextByQuestionId,
     );
   }
 }
 
-class QuestionCardDraftsNotifier extends StateNotifier<Map<int, QuestionCardDraft>> {
+class QuestionCardDraftsNotifier
+    extends StateNotifier<Map<Object, QuestionCardDraft>> {
   QuestionCardDraftsNotifier() : super(const {});
 
   void selectOption({
-    required int messageId,
+    required Object messageId,
     required String questionId,
     required String label,
     required bool multiSelect,
@@ -62,7 +64,7 @@ class QuestionCardDraftsNotifier extends StateNotifier<Map<int, QuestionCardDraf
   }
 
   void setOtherText({
-    required int messageId,
+    required Object messageId,
     required String questionId,
     required String value,
   }) {
@@ -79,7 +81,7 @@ class QuestionCardDraftsNotifier extends StateNotifier<Map<int, QuestionCardDraf
   }
 
   void setCurrentQuestionIndex({
-    required int messageId,
+    required Object messageId,
     required int index,
   }) {
     final current = state[messageId] ?? const QuestionCardDraft();
@@ -90,7 +92,7 @@ class QuestionCardDraftsNotifier extends StateNotifier<Map<int, QuestionCardDraf
   }
 
   void setSkipped({
-    required int messageId,
+    required Object messageId,
     required String questionId,
   }) {
     final current = state[messageId] ?? const QuestionCardDraft();
@@ -109,33 +111,36 @@ class QuestionCardDraftsNotifier extends StateNotifier<Map<int, QuestionCardDraf
     };
   }
 
-  void clearDraft(int messageId) {
+  void clearDraft(Object messageId) {
     if (!state.containsKey(messageId)) {
       return;
     }
-    final next = Map<int, QuestionCardDraft>.from(state)..remove(messageId);
+    final next = Map<Object, QuestionCardDraft>.from(state)..remove(messageId);
     state = next;
   }
 }
 
-final questionCardDraftsProvider =
-    StateNotifierProvider<QuestionCardDraftsNotifier, Map<int, QuestionCardDraft>>(
+final questionCardDraftsProvider = StateNotifierProvider<
+    QuestionCardDraftsNotifier, Map<Object, QuestionCardDraft>>(
   (ref) => QuestionCardDraftsNotifier(),
 );
 
 bool isQuestionAnswered({
   required QuestionCardDraft draft,
   required AskUserQuestionItem question,
+  String otherOptionKey = 'Other',
+  bool allowSkip = true,
 }) {
   if (draft.selectedOptionLabelsByQuestionId.containsKey(question.id) &&
       (draft.selectedOptionLabelsByQuestionId[question.id]?.isEmpty ?? false)) {
-    return true;
+    return allowSkip;
   }
-  final selected = draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
+  final selected =
+      draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
   if (selected.isEmpty) {
     return false;
   }
-  if (!selected.contains('Other')) {
+  if (!selected.contains(otherOptionKey)) {
     return true;
   }
   final otherText = draft.otherTextByQuestionId[question.id]?.trim() ?? '';
@@ -150,15 +155,19 @@ String resolveAnswerText({
       (draft.selectedOptionLabelsByQuestionId[question.id]?.isEmpty ?? false)) {
     return '';
   }
-  final selected = draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
+  final selected =
+      draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
   if (selected.isEmpty) {
     return '';
   }
-  final normalized = selected.map((label) {
-    if (label != 'Other') {
-      return label;
-    }
-    return draft.otherTextByQuestionId[question.id]?.trim() ?? '';
-  }).where((value) => value.isNotEmpty).toList(growable: false);
+  final normalized = selected
+      .map((label) {
+        if (label != 'Other') {
+          return label;
+        }
+        return draft.otherTextByQuestionId[question.id]?.trim() ?? '';
+      })
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
   return normalized.join(', ');
 }

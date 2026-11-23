@@ -6,6 +6,7 @@ import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
 import 'package:ai_chat/services/agent_run_manager.dart';
 import 'package:ai_chat/providers/chat_backend_providers.dart';
+import 'package:ai_chat/services/chat_backends/chat_backend_contract.dart';
 import 'package:ai_chat/services/chat_backends/chat_backend_registry.dart';
 import 'package:ai_chat/utils/logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -34,7 +35,9 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
 
   final Ref _ref;
   final ChatBackendRegistry _backendRegistry;
-  final Map<int, String?> _externalHistoryCursors = {};
+  final String Function()? _defaultBackendId;
+  final Map<ChatGroup, Future<ChatGroup>> _externalDrafts = {};
+  final Map<ChatGroup, String> _createdExternalSessionIds = {};
   int _selectionVersion = 0;
   int _historyVersion = 0;
   bool _isRefreshingHistory = false;
@@ -42,7 +45,9 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
   DefaultChatSessionCoordinator(
     this._ref, {
     required ChatBackendRegistry backendRegistry,
-  }) : _backendRegistry = backendRegistry;
+    String Function()? defaultBackendId,
+  })  : _backendRegistry = backendRegistry,
+        _defaultBackendId = defaultBackendId;
 
   @override
   Future<void> loadGroups() async {
@@ -91,13 +96,16 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
   @override
   Future<void> createNewGroup() async {
     final groups = _ref.read(groupsProvider);
+    final backendId = _defaultBackendId?.call() ?? localAgentBackendId;
     final newGroup = ChatGroup(
       title: '新对话 ${groups.length + 1}',
       systemPrompt: _ref.read(systemPromptProvider),
+      backendId: backendId,
     );
     final currentRuntime = _ref.read(currentSessionRuntimeConfigProvider);
     final selection = _showGroup(newGroup);
     try {
+      if (backendId != localAgentBackendId) return;
       final draftRuntime = await _ref
           .read(sessionRuntimeConfigServiceProvider)
           .createDraftRuntime(currentRuntime: currentRuntime);
@@ -111,6 +119,35 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       if (_isSelected(selection, newGroup.id)) {
         _ref.read(isInitializingProvider.notifier).state = false;
       }
+    }
+  }
+
+  /// Creates one remote session and stores its binding when its draft is sent.
+  Future<ChatGroup> persistExternalDraft(ChatGroup draft, String title) {
+    return _externalDrafts[draft] ??= _persistExternalDraft(draft, title);
+  }
+
+  Future<ChatGroup> _persistExternalDraft(ChatGroup draft, String title) async {
+    try {
+      final backend = _backendRegistry.resolve(draft.backendId);
+      if (backend is! ChatBackendSessionCreator) {
+        throw StateError('当前后端不支持创建会话');
+      }
+      final creator = backend as ChatBackendSessionCreator;
+      final backendSessionId =
+          _createdExternalSessionIds[draft] ??= await creator.createSession();
+      final group =
+          draft.copyWith(title: title, backendSessionId: backendSessionId);
+      final id = await _ref.read(databaseProvider).insertGroup(group);
+      final persisted = group.copyWith(id: id);
+      _createdExternalSessionIds.remove(draft);
+      _ref.read(groupsProvider.notifier).addGroup(persisted);
+      if (identical(_ref.read(currentGroupProvider), draft)) {
+        _ref.read(currentGroupProvider.notifier).state = persisted;
+      }
+      return persisted;
+    } finally {
+      _externalDrafts.remove(draft);
     }
   }
 
@@ -152,15 +189,24 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       final group = await dbHelper.getGroupById(id);
       if (group != null && group.backendId != localAgentBackendId) {
         final session = chatBackendSessionFor(group);
-        final backend = _backendRegistry.resolve(session.backendId);
+        final backend = _backendRegistry.lookup(session.backendId);
         _ref
             .read(chatBackendPresentationGenerationProvider(id).notifier)
             .state++;
-        final presentation = RiverpodChatBackendPresentationSink(_ref, session);
-        await backend.stop(session, presentation);
-        await _backendRegistry
-            .resolve(session.backendId)
-            .deleteSession(session);
+        if (backend != null) {
+          if (backend is ChatBackendSessionObserver) {
+            try {
+              await backend.deleteSession(session);
+            } catch (_) {
+              Logger.w(_tag, 'Remote session observer could not be released');
+            }
+          } else {
+            final presentation =
+                RiverpodChatBackendPresentationSink(_ref, session);
+            await backend.stop(session, presentation);
+            await backend.deleteSession(session);
+          }
+        }
       }
       await dbHelper.deleteGroup(id);
       _ref.invalidate(followUpDispatchQueueProvider(id));
@@ -169,6 +215,9 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       _ref.invalidate(chatSendStateForGroupProvider(id));
       _ref.invalidate(runtimeAssistantDraftForGroupProvider(id));
       _ref.invalidate(runtimeStreamingPreviewForGroupProvider(id));
+      _ref.invalidate(chatBackendHistoryCursorProvider(id));
+      _ref.invalidate(chatBackendSessionErrorProvider(id));
+      _ref.invalidate(chatBackendPendingInteractionsForSessionProvider(id));
       _ref.read(groupsProvider.notifier).setGroups(
             _ref.read(groupsProvider).where((group) => group.id != id).toList(),
           );
@@ -208,16 +257,30 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       final group = _ref.read(currentGroupProvider)!;
       if (group.backendId != localAgentBackendId) {
         final session = chatBackendSessionFor(group);
-        final page =
-            await _backendRegistry.resolve(session.backendId).loadHistory(
-                  session,
-                  limit: _pageSize,
-                );
+        final backend = _backendRegistry.lookup(session.backendId);
+        if (backend == null) {
+          _ref.read(chatBackendSessionErrorProvider(groupId).notifier).state =
+              '后端未连接';
+          return;
+        }
+        final presentation = RiverpodChatBackendPresentationSink(_ref, session);
+        if (backend is ChatBackendSessionObserver) {
+          _ref.read(hasMoreMessagesProvider.notifier).state =
+              _ref.read(chatBackendHistoryCursorProvider(groupId)) != null;
+          (backend as ChatBackendSessionObserver).observeSession(
+            session,
+            presentation,
+          );
+          return;
+        }
+        final page = await backend.loadHistory(
+          session,
+          limit: _pageSize,
+        );
         if (!_isSelected(selection, groupId) || history != _historyVersion) {
           return;
         }
-        _externalHistoryCursors[groupId] = page.nextCursor;
-        RiverpodChatBackendPresentationSink(_ref, session).replaceHistory(page);
+        presentation.replaceHistory(page);
         return;
       }
       final previous = _ref.read(provider);
@@ -248,7 +311,14 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
           totalCount > messages.length;
       Logger.i(_tag, '成功加载 ${messages.length} 条历史消息');
     } catch (e) {
-      Logger.e(_tag, '加载历史消息失败', e);
+      if (_ref.read(currentGroupProvider)?.backendId != localAgentBackendId &&
+          _isSelected(selection, groupId) &&
+          history == _historyVersion) {
+        _ref.read(chatBackendSessionErrorProvider(groupId).notifier).state =
+            '无法加载远端会话';
+      } else {
+        Logger.e(_tag, '加载历史消息失败', e);
+      }
     } finally {
       if (_isSelected(selection, groupId) && history == _historyVersion) {
         _isRefreshingHistory = false;
@@ -279,29 +349,42 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       final group = currentGroup;
       if (group.backendId != localAgentBackendId) {
         final session = chatBackendSessionFor(group);
-        final cursor = _externalHistoryCursors[groupId];
+        final cursorProvider = chatBackendHistoryCursorProvider(groupId);
+        final cursor = _ref.read(cursorProvider);
         if (cursor == null) {
           _ref.read(hasMoreMessagesProvider.notifier).state = false;
           return;
         }
-        final page =
-            await _backendRegistry.resolve(session.backendId).loadHistory(
-                  session,
-                  cursor: cursor,
-                  limit: _pageSize,
-                );
-        if (!_isSelected(selection, groupId) || history != _historyVersion) {
+        final backend = _backendRegistry.resolve(session.backendId);
+        if (backend is ChatBackendSessionObserver) {
+          await (backend as ChatBackendSessionObserver).loadOlderHistory(
+            session,
+            cursor: cursor,
+            limit: _pageSize,
+          );
           return;
         }
-        if (page.messages.isEmpty) {
-          _externalHistoryCursors[groupId] = null;
+        final page = await backend.loadHistory(
+          session,
+          cursor: cursor,
+          limit: _pageSize,
+        );
+        if (!_isSelected(selection, groupId) ||
+            history != _historyVersion ||
+            _ref.read(cursorProvider) != cursor) {
+          return;
+        }
+        if (page.nextCursor == cursor) {
+          _ref.read(cursorProvider.notifier).state = null;
           _ref.read(hasMoreMessagesProvider.notifier).state = false;
           return;
         }
-        _ref
-            .read(selectedMessagesNotifierProvider)
-            .insertMessages(0, page.messages);
-        _externalHistoryCursors[groupId] = page.nextCursor;
+        if (page.messages.isNotEmpty) {
+          _ref
+              .read(selectedMessagesNotifierProvider)
+              .insertMessages(0, page.messages);
+        }
+        _ref.read(cursorProvider.notifier).state = page.nextCursor;
         _ref.read(hasMoreMessagesProvider.notifier).state = page.hasMore;
         return;
       }
@@ -346,6 +429,10 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       return;
     }
     try {
+      if (group.backendId != localAgentBackendId) {
+        await loadMessages();
+        return;
+      }
       final runtime = await _ref
           .read(sessionRuntimeConfigServiceProvider)
           .loadPersisted(groupId);

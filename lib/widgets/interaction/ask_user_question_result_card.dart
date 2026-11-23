@@ -1,6 +1,5 @@
 import 'package:ai_chat/models/chat_message.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_item.dart';
-import 'package:ai_chat/models/interaction/ask_user_question_request.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_response.dart';
 import 'package:ai_chat/theme/app_theme_spec.dart';
 import 'package:ai_chat/theme/app_radius.dart';
@@ -28,14 +27,12 @@ class AskUserQuestionResultCard extends StatelessWidget {
         ? AskUserQuestionResponse.fromJson(submittedAnswers)
         : const AskUserQuestionResponse();
     final answers = response.answersByQuestionId;
-    final request = _readRequest(payload);
-    final questionsById = {
-      for (final question in request?.questions ?? const <AskUserQuestionItem>[])
-        question.id: question,
-    };
+    final questionsById = _readQuestions(payload['questions']);
 
-    final colors = Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
-    final spacing = Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
+    final colors =
+        Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
+    final spacing =
+        Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
     final radius = Theme.of(context).extension<AppRadius>() ?? AppRadius.base();
 
     return Container(
@@ -103,11 +100,17 @@ class AskUserQuestionResultCard extends StatelessWidget {
     );
   }
 
-  AskUserQuestionRequest? _readRequest(Map<String, dynamic> payload) {
-    try {
-      return AskUserQuestionRequest.fromJson(payload);
-    } on FormatException {
-      return null;
+  Map<String, AskUserQuestionItem> _readQuestions(Object? value) {
+    if (value is! List) return const {};
+    final questions = <String, AskUserQuestionItem>{};
+    for (final item in value.whereType<Map<String, dynamic>>()) {
+      try {
+        final question = AskUserQuestionItem.fromJson(item);
+        questions[question.id] = question;
+      } on FormatException {
+        continue;
+      }
     }
+    return questions;
   }
 }

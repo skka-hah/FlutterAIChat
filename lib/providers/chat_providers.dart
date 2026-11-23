@@ -4,8 +4,10 @@ import 'package:ai_chat/controllers/chat_preferences_controller.dart';
 import 'package:ai_chat/controllers/chat_send_coordinator.dart';
 import 'package:ai_chat/controllers/chat_session_coordinator.dart';
 import 'package:ai_chat/controllers/chat_summary_controller.dart';
+import 'package:ai_chat/models/chat_group.dart';
 import 'package:ai_chat/providers/chat_collection_providers.dart';
 import 'package:ai_chat/providers/chat_backend_providers.dart';
+import 'package:ai_chat/providers/dsh_connection_providers.dart';
 import 'package:ai_chat/services/chat_backends/chat_backend_contract.dart';
 import 'package:ai_chat/services/chat_backends/chat_backend_registry.dart';
 import 'package:ai_chat/services/chat_backends/local_agent_session_backend.dart';
@@ -43,14 +45,27 @@ final chatSessionBackendRegistryProvider = Provider<ChatBackendRegistry>((ref) {
       ref,
       sendCoordinatorReader: () => ref.read(chatSendCoordinatorProvider),
     ),
-  ]);
+  ], resolveAdditional: (id) {
+    return id == dshBackendId ? ref.read(dshSessionBackendProvider) : null;
+  });
+});
+
+/// The backend assigned to newly created drafts in this app process.
+final defaultChatBackendIdProvider = Provider<String>((ref) {
+  if (dshDebugConnectionSupported &&
+      ref.watch(dshDebugConnectionProvider) != null &&
+      ref.watch(dshDefaultForNewChatsProvider)) {
+    return dshBackendId;
+  }
+  return localAgentBackendId;
 });
 
 /// Capabilities of the currently selected session's fixed backend.
 final chatBackendCapabilitiesProvider =
     Provider<ChatBackendCapabilities>((ref) {
   final group = ref.watch(currentGroupProvider);
-  if (group?.id == null) {
+  if (group == null ||
+      (group.id == null && group.backendId == localAgentBackendId)) {
     return const ChatBackendCapabilities(
       canStop: true,
       canQueueInput: true,
@@ -62,16 +77,21 @@ final chatBackendCapabilitiesProvider =
       hasStreamingPreview: true,
     );
   }
-  final backend = ref.watch(chatSessionBackendRegistryProvider).resolve(
-        group!.backendId,
-      );
-  return backend.capabilitiesFor(chatBackendSessionFor(group));
+  final backend = group.backendId == dshBackendId
+      ? ref.watch(dshSessionBackendProvider)
+      : ref.watch(chatSessionBackendRegistryProvider).lookup(group.backendId);
+  if (backend == null) return const ChatBackendCapabilities();
+  final session = group.id == null
+      ? ChatBackendSession(appSessionId: 0, backendId: group.backendId)
+      : chatBackendSessionFor(group);
+  return backend.capabilitiesFor(session);
 });
 
 final chatSessionCoordinatorProvider = Provider<ChatSessionCoordinator>((ref) {
   return DefaultChatSessionCoordinator(
     ref,
     backendRegistry: ref.read(chatSessionBackendRegistryProvider),
+    defaultBackendId: () => ref.read(defaultChatBackendIdProvider),
   );
 });
 

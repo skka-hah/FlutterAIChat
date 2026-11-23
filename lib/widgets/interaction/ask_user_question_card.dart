@@ -1,4 +1,6 @@
 import 'package:ai_chat/models/chat_message.dart';
+import 'package:ai_chat/models/interaction/ask_user_question_item.dart';
+import 'package:ai_chat/models/interaction/ask_user_question_option.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_request.dart';
 import 'package:ai_chat/providers/chat_providers.dart';
 import 'package:ai_chat/theme/app_theme_spec.dart';
@@ -7,44 +9,81 @@ import 'package:ai_chat/theme/app_spacing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class AskUserQuestionCard extends ConsumerWidget {
-  final ChatMessage message;
-
+/// Shared timeline card for local and external structured questions.
+class AskUserQuestionCard extends ConsumerStatefulWidget {
   const AskUserQuestionCard({
     super.key,
-    required this.message,
-  });
+    required ChatMessage message,
+  })  : _message = message,
+        _interaction = null;
+
+  const AskUserQuestionCard.backend({
+    super.key,
+    required ChatBackendPendingInteraction interaction,
+  })  : _interaction = interaction,
+        _message = null;
+
+  final ChatMessage? _message;
+  final ChatBackendPendingInteraction? _interaction;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final payload = message.payloadJson;
-    final messageId = message.id;
-    if (payload == null || messageId == null) {
+  ConsumerState<AskUserQuestionCard> createState() =>
+      _AskUserQuestionCardState();
+}
+
+class _AskUserQuestionCardState extends ConsumerState<AskUserQuestionCard> {
+  static const _externalOther = '\u0000custom';
+  bool _submitting = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final interaction = widget._interaction;
+    final message = widget._message;
+    final Object? messageId =
+        interaction?.reference.presentationKey ?? message?.id;
+    final payload = message?.payloadJson;
+    if (messageId == null || (interaction == null && payload == null)) {
       return const SizedBox.shrink();
     }
-    final request = AskUserQuestionRequest.fromJson(payload);
+    final questions = interaction == null
+        ? AskUserQuestionRequest.fromJson(payload!).questions
+        : interaction.questions.map(_questionForCard).toList(growable: false);
+    if (questions.isEmpty) return const SizedBox.shrink();
+    final otherOption = interaction == null ? 'Other' : _externalOther;
+    final allowSkip = interaction == null;
     final draft = ref.watch(questionCardDraftsProvider)[messageId] ??
         const QuestionCardDraft();
     final questionIndex = draft.currentQuestionIndex.clamp(
       0,
-      request.questions.length - 1,
+      questions.length - 1,
     );
-    final question = request.questions[questionIndex];
-    final selected = draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
-    final isSkipped = draft.selectedOptionLabelsByQuestionId.containsKey(question.id) &&
-        selected.isEmpty;
+    final question = questions[questionIndex];
+    final detail = interaction?.questions[questionIndex].detail;
+    final allowCustom =
+        interaction?.questions[questionIndex].allowCustom ?? true;
+    final selected =
+        draft.selectedOptionLabelsByQuestionId[question.id] ?? const [];
+    final isSkipped =
+        draft.selectedOptionLabelsByQuestionId.containsKey(question.id) &&
+            selected.isEmpty;
     final isCurrentQuestionAnswered = isQuestionAnswered(
       draft: draft,
       question: question,
+      otherOptionKey: otherOption,
+      allowSkip: allowSkip,
     );
-    final hasOther = selected.contains('Other');
-    final colors = Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
-    final spacing = Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
+    final hasOther = allowCustom && selected.contains(otherOption);
+    final colors =
+        Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
+    final spacing =
+        Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
     final radius = Theme.of(context).extension<AppRadius>() ?? AppRadius.base();
-    final canSubmit = request.questions.every(
+    final canSubmit = questions.every(
       (item) => isQuestionAnswered(
         draft: draft,
         question: item,
+        otherOptionKey: otherOption,
+        allowSkip: allowSkip,
       ),
     );
     return Container(
@@ -91,7 +130,7 @@ class AskUserQuestionCard extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(radius.pill),
                 ),
                 child: Text(
-                  '问题 ${questionIndex + 1} / ${request.questions.length}',
+                  '问题 ${questionIndex + 1} / ${questions.length}',
                   style: TextStyle(
                     color: colors.workflowRunning,
                     fontSize: 10,
@@ -101,6 +140,10 @@ class AskUserQuestionCard extends ConsumerWidget {
               ),
             ],
           ),
+          if (detail != null && detail.trim().isNotEmpty) ...[
+            SizedBox(height: spacing.xs),
+            Text(detail, style: TextStyle(color: colors.secondaryText)),
+          ],
           SizedBox(height: spacing.sm),
           Text(
             question.question,
@@ -149,23 +192,26 @@ class AskUserQuestionCard extends ConsumerWidget {
               },
             ),
           ),
-          _QuestionOptionTile(
-            label: 'Other',
-            description: '',
-            selected: hasOther,
-            isRecommended: false,
-            onTap: () {
-              ref.read(questionCardDraftsProvider.notifier).selectOption(
-                    messageId: messageId,
-                    questionId: question.id,
-                    label: 'Other',
-                    multiSelect: question.multiSelect,
-                  );
-            },
-          ),
+          if (allowCustom)
+            _QuestionOptionTile(
+              label: 'Other',
+              description: '',
+              selected: hasOther,
+              isRecommended: false,
+              onTap: () {
+                ref.read(questionCardDraftsProvider.notifier).selectOption(
+                      messageId: messageId,
+                      questionId: question.id,
+                      label: otherOption,
+                      multiSelect: question.multiSelect,
+                    );
+              },
+            ),
           if (hasOther) ...[
             SizedBox(height: spacing.xs),
-            TextField(
+            TextFormField(
+              key: ValueKey((messageId, question.id)),
+              initialValue: draft.otherTextByQuestionId[question.id],
               onChanged: (value) {
                 ref.read(questionCardDraftsProvider.notifier).setOtherText(
                       messageId: messageId,
@@ -190,9 +236,9 @@ class AskUserQuestionCard extends ConsumerWidget {
           SizedBox(height: spacing.sm),
           Row(
             children: [
-              if (request.questions.length > 1)
+              if (questions.length > 1)
                 TextButton(
-                  onPressed: questionIndex == 0
+                  onPressed: questionIndex == 0 || _submitting
                       ? null
                       : () => ref
                           .read(questionCardDraftsProvider.notifier)
@@ -202,27 +248,45 @@ class AskUserQuestionCard extends ConsumerWidget {
                           ),
                   child: const Text('上一题'),
                 ),
-              TextButton(
-                onPressed: () => ref
-                    .read(chatInteractionCoordinatorProvider)
-                    .skipCurrentQuestion(message),
-                child: const Text('跳过'),
-              ),
+              if (message != null)
+                TextButton(
+                  onPressed: () => ref
+                      .read(chatInteractionCoordinatorProvider)
+                      .skipCurrentQuestion(message),
+                  child: const Text('跳过'),
+                ),
+              if (interaction?.actions.contains('cancel') == true)
+                TextButton(
+                  onPressed: _submitting
+                      ? null
+                      : () => _submitBackend(interaction!, 'cancel'),
+                  child: const Text('取消问答'),
+                ),
               const Spacer(),
               FilledButton(
-                onPressed: _resolvePrimaryAction(
-                  ref: ref,
-                  message: message,
-                  messageId: messageId,
-                  questionIndex: questionIndex,
-                  totalQuestions: request.questions.length,
-                  isCurrentQuestionAnswered: isCurrentQuestionAnswered,
-                  canSubmit: canSubmit,
-                ),
+                onPressed: _submitting
+                    ? null
+                    : questionIndex < questions.length - 1
+                        ? isCurrentQuestionAnswered
+                            ? () => ref
+                                .read(questionCardDraftsProvider.notifier)
+                                .setCurrentQuestionIndex(
+                                    messageId: messageId,
+                                    index: questionIndex + 1)
+                            : null
+                        : canSubmit
+                            ? () {
+                                if (interaction == null) {
+                                  ref
+                                      .read(chatInteractionCoordinatorProvider)
+                                      .submitQuestionAnswers(message!);
+                                } else {
+                                  _submitBackend(interaction, 'answer', draft);
+                                }
+                              }
+                            : null,
                 child: Text(
-                  questionIndex >= request.questions.length - 1
-                      ? '提交并继续'
-                      : '下一题',
+                  questionIndex >= questions.length - 1 ? '提交并继续' : '下一题',
                 ),
               ),
             ],
@@ -232,31 +296,63 @@ class AskUserQuestionCard extends ConsumerWidget {
     );
   }
 
-  VoidCallback? _resolvePrimaryAction({
-    required WidgetRef ref,
-    required ChatMessage message,
-    required int messageId,
-    required int questionIndex,
-    required int totalQuestions,
-    required bool isCurrentQuestionAnswered,
-    required bool canSubmit,
-  }) {
-    if (questionIndex < totalQuestions - 1) {
-      if (!isCurrentQuestionAnswered) {
-        return null;
-      }
-      return () => ref.read(questionCardDraftsProvider.notifier).setCurrentQuestionIndex(
-            messageId: messageId,
-            index: questionIndex + 1,
+  Future<void> _submitBackend(
+    ChatBackendPendingInteraction interaction,
+    String action, [
+    QuestionCardDraft? draft,
+  ]) async {
+    setState(() => _submitting = true);
+    try {
+      await ref.read(chatControllerProvider).resolveBackendPendingInteraction(
+            interaction,
+            action: action,
+            payload: draft == null
+                ? const {}
+                : {
+                    'answers': [
+                      for (final question in interaction.questions)
+                        {
+                          'id': question.id,
+                          'selected': (draft.selectedOptionLabelsByQuestionId[
+                                      question.id] ??
+                                  const <String>[])
+                              .where((label) => label != _externalOther)
+                              .toList(growable: false),
+                          if (draft
+                                  .selectedOptionLabelsByQuestionId[question.id]
+                                  ?.contains(_externalOther) ==
+                              true)
+                            'custom': draft.otherTextByQuestionId[question.id]
+                                ?.trim(),
+                        },
+                    ],
+                  },
           );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法提交远端问答')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
-    if (!canSubmit) {
-      return null;
-    }
-    return () => ref
-        .read(chatInteractionCoordinatorProvider)
-        .submitQuestionAnswers(message);
   }
+
+  AskUserQuestionItem _questionForCard(ChatBackendQuestion question) =>
+      AskUserQuestionItem(
+        id: question.id,
+        header: question.header ?? '',
+        question: question.prompt,
+        multiSelect: question.multiSelect,
+        options: [
+          for (final option in question.options)
+            AskUserQuestionOption(
+                label: option.label,
+                description: option.description ?? '',
+                isRecommended: false),
+        ],
+      );
 }
 
 class _QuestionOptionTile extends StatelessWidget {
@@ -276,8 +372,10 @@ class _QuestionOptionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
-    final spacing = Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
+    final colors =
+        Theme.of(context).extension<AppThemeSpec>() ?? AppThemeSpec.light();
+    final spacing =
+        Theme.of(context).extension<AppSpacing>() ?? AppSpacing.base();
     final radius = Theme.of(context).extension<AppRadius>() ?? AppRadius.base();
 
     return Padding(
@@ -301,9 +399,7 @@ class _QuestionOptionTile extends StatelessWidget {
                 height: 18,
                 margin: EdgeInsets.only(top: 1, right: spacing.sm),
                 decoration: BoxDecoration(
-                  color: selected
-                      ? colors.workflowRunning
-                      : Colors.transparent,
+                  color: selected ? colors.workflowRunning : Colors.transparent,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
                     color: selected
@@ -343,7 +439,8 @@ class _QuestionOptionTile extends StatelessWidget {
                               vertical: spacing.xxs,
                             ),
                             decoration: BoxDecoration(
-                              color: colors.workflowSuccess.withValues(alpha: 0.12),
+                              color: colors.workflowSuccess
+                                  .withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(radius.pill),
                             ),
                             child: Text(

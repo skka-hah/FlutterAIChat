@@ -2,6 +2,7 @@ import 'package:ai_chat/models/chat_group.dart';
 import 'package:ai_chat/models/chat_message.dart';
 import 'package:ai_chat/models/chat/runtime_streaming_preview_state.dart';
 import 'package:ai_chat/providers/chat_collection_providers.dart';
+import 'package:ai_chat/providers/chat_interaction_providers.dart';
 import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
 import 'package:ai_chat/services/chat_backends/chat_backend_contract.dart';
@@ -20,13 +21,23 @@ final chatBackendPresentationGenerationProvider =
   (ref, sessionId) => 0,
 );
 
+/// Cursor for the oldest page attached to a backend's current timeline.
+final chatBackendHistoryCursorProvider =
+    StateProvider.family<String?, int>((ref, sessionId) => null);
+
+/// A recoverable connection or history error for one external session.
+final chatBackendSessionErrorProvider =
+    StateProvider.family<String?, int>((ref, sessionId) => null);
+
 final activeChatBackendPendingInteractionProvider =
     Provider<ChatBackendPendingInteraction?>((ref) {
   final sessionId = ref.watch(currentGroupProvider)?.id;
   if (sessionId == null) return null;
   final interactions =
       ref.watch(chatBackendPendingInteractionsForSessionProvider(sessionId));
-  return interactions.isEmpty ? null : interactions.last;
+  return interactions
+      .where((interaction) => interaction.questions.isEmpty)
+      .lastOrNull;
 });
 
 ChatBackendSession _backendSessionFor(ChatGroup group) => ChatBackendSession(
@@ -60,6 +71,12 @@ class RiverpodChatBackendPresentationSink
   @override
   void replaceHistory(ChatBackendHistoryPage page) {
     if (!_isCurrent) return;
+    _ref
+        .read(chatBackendHistoryCursorProvider(session.appSessionId).notifier)
+        .state = page.nextCursor;
+    _ref
+        .read(chatBackendSessionErrorProvider(session.appSessionId).notifier)
+        .state = null;
     _ref
         .read(messagesForGroupProvider(session.appSessionId).notifier)
         .setMessages(page.messages);
@@ -124,11 +141,19 @@ class RiverpodChatBackendPresentationSink
     List<ChatBackendPendingInteraction> interactions,
   ) {
     if (!_isCurrent) return;
-    _ref
-        .read(chatBackendPendingInteractionsForSessionProvider(
-                session.appSessionId)
-            .notifier)
-        .state = List.unmodifiable(interactions);
+    final provider =
+        chatBackendPendingInteractionsForSessionProvider(session.appSessionId);
+    final retained = {
+      for (final interaction in interactions)
+        interaction.reference.presentationKey,
+    };
+    for (final previous in _ref.read(provider)) {
+      final key = previous.reference.presentationKey;
+      if (previous.questions.isNotEmpty && !retained.contains(key)) {
+        _ref.read(questionCardDraftsProvider.notifier).clearDraft(key);
+      }
+    }
+    _ref.read(provider.notifier).state = List.unmodifiable(interactions);
   }
 }
 

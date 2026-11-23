@@ -65,6 +65,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final pendingBackendInteraction =
         ref.watch(activeChatBackendPendingInteractionProvider);
     final backendCapabilities = ref.watch(chatBackendCapabilitiesProvider);
+    final selectedGroupId = currentGroup?.id;
+    final backendSessionError = selectedGroupId == null
+        ? null
+        : ref.watch(chatBackendSessionErrorProvider(selectedGroupId));
     final traceSnapshot = ref.watch(streamingTraceSnapshotProvider);
     final traceOverlayState =
         ref.watch(streamingTraceOverlayControllerProvider);
@@ -209,14 +213,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
+                                          if (backendSessionError != null)
+                                            TextButton.icon(
+                                              onPressed:
+                                                  chatController.loadMessages,
+                                              icon: const Icon(Icons.refresh),
+                                              label: Text(backendSessionError),
+                                            ),
                                           if (pendingBackendInteraction != null)
                                             ChatBackendInteractionBottomBar(
                                               interaction:
                                                   pendingBackendInteraction,
-                                              onAction: (action) => chatController
-                                                  .resolveBackendPendingInteraction(
+                                              onAction: (action, payload) =>
+                                                  chatController
+                                                      .resolveBackendPendingInteraction(
                                                 pendingBackendInteraction,
                                                 action: action,
+                                                payload: payload,
                                               ),
                                             ),
                                           if (pendingConfirmation != null &&

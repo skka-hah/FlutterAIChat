@@ -93,6 +93,8 @@ flowchart TD
 
 聊天命令按会话固定的 backend ID 路由。本地 Agent 继续使用自己的 `TurnHarness`、运行池与 turn/event transcript；其他 backend 通过统一的 history、presentation 和 interaction 契约接入，不需要伪造本地 turn。既有会话升级后默认使用本地 Agent，当前不支持会话间迁移。详见[会话后端边界](./docs/architecture/chat-session-backend-boundary.md)和[双 Agent 后端改造计划](./docs/superpowers/plans/2026-11-22-dual-agent-backend-implementation-plan.md)。
 
+原生调试版可在「设置 → 远端后端 → DSH 调试连接」输入电脑端 `dsh web --no-open` 输出的启动 URL，然后勾选「新对话使用 DSH」。从 DSH 源码启动时，在其仓库运行 `pnpm run dsh web --no-open`。没有手机时，在同一台电脑运行 `flutter run -d macos`，使用 DSH 默认的回环地址即可调试聊天页。手机调试时使用可从手机访问的宿主地址。启动凭证留在当前 App 进程内，重开 App 后重新连接即可访问已有的 DSH 会话。远程会话的消息与运行记录由 DSH 保存。详见 [DSH 远程后端首版计划](./docs/superpowers/plans/2026-11-24-dsh-remote-backend-v1-plan.md)。
+
 ## 文件沙盒
 
 - Agent 看到的是以 `/` 为根的 file-native 沙盒路径

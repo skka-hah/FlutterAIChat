@@ -12,15 +12,39 @@ import '../../tools/core/tool_display_names.dart';
 class ToolConfirmationBottomBar extends StatelessWidget {
   const ToolConfirmationBottomBar({
     super.key,
-    required this.message,
-    required this.invocation,
+    required ChatMessage message,
+    required ToolInvocation invocation,
     this.onContinue,
     this.onCancel,
     this.onContinueAndTrust,
-  });
+  })  : _message = message,
+        _invocation = invocation,
+        _toolName = null,
+        _summary = null,
+        _continueLabel = '继续',
+        _cancelLabel = '取消';
 
-  final ChatMessage message;
-  final ToolInvocation invocation;
+  /// Uses backend-provided context and only offers decisions the backend supports.
+  const ToolConfirmationBottomBar.backend({
+    super.key,
+    required String toolName,
+    required String summary,
+    required this.onContinue,
+    required this.onCancel,
+  })  : _message = null,
+        _invocation = null,
+        _toolName = toolName,
+        _summary = summary,
+        _continueLabel = '仅本次允许',
+        _cancelLabel = '拒绝',
+        onContinueAndTrust = null;
+
+  final ChatMessage? _message;
+  final ToolInvocation? _invocation;
+  final String? _toolName;
+  final String? _summary;
+  final String _continueLabel;
+  final String _cancelLabel;
   final VoidCallback? onContinue;
   final VoidCallback? onCancel;
   final VoidCallback? onContinueAndTrust;
@@ -30,10 +54,12 @@ class ToolConfirmationBottomBar extends StatelessWidget {
     final colors = Theme.of(context).extension<AppThemeSpec>()!;
     final spacing = Theme.of(context).extension<AppSpacing>()!;
     final radius = Theme.of(context).extension<AppRadius>()!;
-    final title = resolveToolDisplayName(invocation.toolName);
-    final summary = invocation.summary.trim().isEmpty
-        ? message.text.trim()
-        : invocation.summary.trim();
+    final title = resolveToolDisplayName(_toolName ?? _invocation!.toolName);
+    final invocationSummary = _invocation?.summary.trim();
+    final summary = _summary ??
+        ((invocationSummary ?? '').isEmpty
+            ? _message!.text.trim()
+            : invocationSummary!);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -97,16 +123,17 @@ class ToolConfirmationBottomBar extends StatelessWidget {
               children: [
                 FilledButton(
                   onPressed: onContinue,
-                  child: const Text('继续'),
+                  child: Text(_continueLabel),
                 ),
                 OutlinedButton(
                   onPressed: onCancel,
-                  child: const Text('取消'),
+                  child: Text(_cancelLabel),
                 ),
-                OutlinedButton(
-                  onPressed: onContinueAndTrust,
-                  child: const Text('继续，以后不再确认'),
-                ),
+                if (_invocation != null)
+                  OutlinedButton(
+                    onPressed: onContinueAndTrust,
+                    child: const Text('继续，以后不再确认'),
+                  ),
               ],
             ),
           ],

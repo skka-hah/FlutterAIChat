@@ -60,6 +60,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   sqflite_common_ffi: ^2.3.3
   # Already a transitive dependency of webview_flutter; surfaced here so tests
   # can register a scriptable fake WebViewPlatform.

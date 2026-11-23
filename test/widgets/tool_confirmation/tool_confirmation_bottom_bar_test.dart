@@ -7,6 +7,29 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ToolConfirmationBottomBar', () {
+    testWidgets('shows backend approval reason and one-time decisions',
+        (tester) async {
+      var rejected = false;
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: Scaffold(
+          body: ToolConfirmationBottomBar.backend(
+            toolName: 'Write',
+            summary: 'Confirmation requested by the backend',
+            onContinue: () {},
+            onCancel: () => rejected = true,
+          ),
+        ),
+      ));
+      expect(find.text('写入文件'), findsOneWidget);
+      expect(
+          find.text('Confirmation requested by the backend'), findsOneWidget);
+      expect(find.text('仅本次允许'), findsOneWidget);
+      expect(find.text('继续，以后不再确认'), findsNothing);
+      await tester.tap(find.text('拒绝'));
+      expect(rejected, isTrue);
+    });
+
     testWidgets('renders invocation summary and three actions', (tester) async {
       await tester.pumpWidget(
         MaterialApp(

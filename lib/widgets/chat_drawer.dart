@@ -5,6 +5,7 @@ import 'package:ai_chat/theme/app_spacing.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/chat_group.dart';
 import '../providers/chat_providers.dart';
 import '../services/workspace/workspace_binding_service.dart';
 import 'shared/app_bottom_sheet.dart';
@@ -17,6 +18,7 @@ class ChatDrawer extends ConsumerWidget {
     // 获取所需状态
     final groups = ref.watch(groupsProvider);
     final currentGroup = ref.watch(currentGroupProvider);
+    final isLocalBackend = currentGroup?.backendId == localAgentBackendId;
     final currentRuntime = ref.watch(currentSessionRuntimeConfigProvider);
     final sendPhase = ref.watch(sendPhaseProvider);
     final isSendInFlight = sendPhase != ChatSendPhase.idle;
@@ -74,7 +76,7 @@ class ChatDrawer extends ConsumerWidget {
                         resolvedWorkspace == null || resolvedWorkspace.isDefault
                             ? '默认'
                             : resolvedWorkspace.workspaceId,
-                    onTap: currentGroup == null || isSendInFlight
+                    onTap: !isLocalBackend || isSendInFlight
                         ? null
                         : () async {
                             final selected = await showAppBottomSheet<String>(
@@ -106,6 +108,10 @@ class ChatDrawer extends ConsumerWidget {
                                     workspaceBindingService.defaultWorkspaceId
                                 ? null
                                 : selected;
+                            if (!context.mounted ||
+                                !identical(ref.read(currentGroupProvider), currentGroup)) {
+                              return;
+                            }
                             await chatController.updateCurrentGroupWorkspace(
                               nextWorkspaceId,
                             );
@@ -137,8 +143,11 @@ class ChatDrawer extends ConsumerWidget {
                       return _DrawerGroupTile(
                         title: currentGroup.title,
                         subtitle: '新对话',
-                        providerLabel:
-                            _runtimeLabelFromProviderId(currentRuntime?.providerId),
+                        providerLabel: isLocalBackend
+                            ? _runtimeLabelFromProviderId(
+                                currentRuntime?.providerId,
+                              )
+                            : currentGroup.backendId.toUpperCase(),
                         isSelected: true,
                         enabled: false,
                       );
@@ -147,15 +156,18 @@ class ChatDrawer extends ConsumerWidget {
                     final adjustedIndex = showDraftGroup ? index - 1 : index;
                     final group = groups[adjustedIndex];
                     final isSelected = currentGroup?.id == group.id;
+                    final isExternal = group.backendId != localAgentBackendId;
 
                     return _DrawerGroupTile(
                       title: group.title,
                       subtitle: '最后消息：${_formatDateTime(group.lastMessageAt)}',
-                      providerLabel: isSelected
-                          ? _runtimeLabelFromProviderId(
-                              currentRuntime?.providerId,
-                            )
-                          : 'Session',
+                      providerLabel: isExternal
+                          ? group.backendId.toUpperCase()
+                          : isSelected
+                              ? _runtimeLabelFromProviderId(
+                                  currentRuntime?.providerId,
+                                )
+                              : 'Session',
                       isSelected: isSelected,
                       enabled: true,
                       onTap: () {
@@ -168,9 +180,13 @@ class ChatDrawer extends ConsumerWidget {
                               showCupertinoDialog(
                                 context: context,
                                 builder: (context) => CupertinoAlertDialog(
-                                  title: const Text('删除对话'),
+                                  title: Text(
+                                    isExternal ? '从此设备移除对话' : '删除对话',
+                                  ),
                                   content: Text(
-                                    '确定要删除"${group.title}"吗？此操作不可恢复。',
+                                    isExternal
+                                        ? '将从此设备移除"${group.title}"。远端会话记录将保留。'
+                                        : '确定要删除"${group.title}"吗？此操作不可恢复。',
                                   ),
                                   actions: [
                                     CupertinoDialogAction(
@@ -179,7 +195,7 @@ class ChatDrawer extends ConsumerWidget {
                                     ),
                                     CupertinoDialogAction(
                                       isDestructiveAction: true,
-                                      child: const Text('删除'),
+                                      child: Text(isExternal ? '移除' : '删除'),
                                       onPressed: () {
                                         Navigator.pop(context);
                                         chatController.deleteGroup(group.id!);

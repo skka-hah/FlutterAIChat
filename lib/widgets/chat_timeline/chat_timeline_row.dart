@@ -66,6 +66,10 @@ class ChatTimelineRow extends ConsumerWidget {
           context,
           ref,
         ),
+      ChatTimelineItemType.backendQuestion => AskUserQuestionCard.backend(
+          key: ValueKey(item.backendQuestion!.reference.presentationKey),
+          interaction: item.backendQuestion!,
+        ),
     };
 
     // Only animate if explicitly requested (for new messages)

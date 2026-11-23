@@ -68,6 +68,10 @@ class ChatBackendInteractionReference {
   final int? messageId;
   final Map<String, Object?> payload;
   final ChatMessage? sourceMessage;
+
+  /// Identifies a live interaction and its draft across session selection.
+  (String, int?, String, String) get presentationKey =>
+      (backendId, appSessionId, executionId, interactionId);
 }
 
 /// Presentation data for an interaction owned by one backend execution.
@@ -77,12 +81,45 @@ class ChatBackendPendingInteraction {
     required this.title,
     required this.prompt,
     this.actions = const <String>[],
+    this.questions = const [],
   });
 
   final ChatBackendInteractionReference reference;
   final String title;
   final String prompt;
   final List<String> actions;
+
+  /// A structured form, when this interaction requires answers to questions.
+  final List<ChatBackendQuestion> questions;
+}
+
+/// One question and the choices offered by its execution backend.
+class ChatBackendQuestion {
+  const ChatBackendQuestion({
+    required this.id,
+    required this.prompt,
+    this.header,
+    this.detail,
+    this.options = const [],
+    this.multiSelect = false,
+    this.allowCustom = true,
+  });
+
+  final String id;
+  final String prompt;
+  final String? header;
+  final String? detail;
+  final List<ChatBackendQuestionOption> options;
+  final bool multiSelect;
+  final bool allowCustom;
+}
+
+/// An answer label returned unchanged to the backend and optional display help.
+class ChatBackendQuestionOption {
+  const ChatBackendQuestionOption({required this.label, this.description});
+
+  final String label;
+  final String? description;
 }
 
 /// App-facing run state emitted by a backend without exposing engine states.
@@ -160,5 +197,25 @@ abstract interface class ChatSessionBackend {
     required String action,
     Map<String, Object?> payload = const {},
     required ChatBackendPresentationSink presentation,
+  });
+}
+
+/// A backend that allocates the remote identity of a Flutter draft.
+abstract interface class ChatBackendSessionCreator {
+  Future<String> createSession();
+}
+
+/// A backend with updates independent of an in-flight send command.
+abstract interface class ChatBackendSessionObserver {
+  void observeSession(
+    ChatBackendSession session,
+    ChatBackendPresentationSink presentation,
+  );
+
+  /// Extends the observed window and publishes it together with live updates.
+  Future<void> loadOlderHistory(
+    ChatBackendSession session, {
+    required String cursor,
+    required int limit,
   });
 }

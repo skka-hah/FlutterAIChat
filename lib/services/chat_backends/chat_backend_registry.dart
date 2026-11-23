@@ -2,10 +2,18 @@ import 'chat_backend_contract.dart';
 
 /// Resolves one immutable backend implementation for each session backend ID.
 class ChatBackendRegistry {
-  ChatBackendRegistry(Iterable<ChatSessionBackend> backends)
-      : _backends = _buildIndex(backends);
+  ChatBackendRegistry(
+    Iterable<ChatSessionBackend> backends, {
+    ChatSessionBackend? Function(String backendId)? resolveAdditional,
+  })  : _resolveAdditional = resolveAdditional,
+        _backends = _buildIndex(backends);
 
   final Map<String, ChatSessionBackend> _backends;
+  final ChatSessionBackend? Function(String backendId)? _resolveAdditional;
+
+  /// Returns null if the backend has no configuration in this app process.
+  ChatSessionBackend? lookup(String backendId) =>
+      _backends[backendId] ?? _resolveAdditional?.call(backendId);
 
   static Map<String, ChatSessionBackend> _buildIndex(
     Iterable<ChatSessionBackend> backends,
@@ -21,12 +29,12 @@ class ChatBackendRegistry {
   }
 
   ChatSessionBackend resolve(String backendId) {
-    final backend = _backends[backendId];
+    final backend = lookup(backendId);
     if (backend == null) {
       throw StateError('chat_backend_not_registered:$backendId');
     }
     return backend;
   }
 
-  bool contains(String backendId) => _backends.containsKey(backendId);
+  bool contains(String backendId) => lookup(backendId) != null;
 }

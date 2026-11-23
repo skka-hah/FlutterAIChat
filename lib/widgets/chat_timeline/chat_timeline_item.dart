@@ -1,6 +1,7 @@
 import 'package:ai_chat/models/chat/active_turn_status_presentation.dart';
 import 'package:ai_chat/models/chat/assistant_turn_block.dart';
 import 'package:ai_chat/models/chat_message.dart';
+import 'package:ai_chat/services/chat_backends/chat_backend_contract.dart';
 import 'package:flutter/widgets.dart';
 
 /// Stable description for a single rendered timeline row.
@@ -8,6 +9,7 @@ enum ChatTimelineItemType {
   contextBoundary,
   userBubble,
   assistantBlock,
+  backendQuestion,
 }
 
 /// UI-facing item model used to decouple timeline structure from widget instances.
@@ -33,6 +35,9 @@ class ChatTimelineItem {
   /// Assistant block payload for assistant rows.
   final AssistantTurnBlock? block;
 
+  /// A live backend question presented at the tail of the same timeline.
+  final ChatBackendPendingInteraction? backendQuestion;
+
   /// Optional unified running status appended under the active anchor row.
   final ActiveTurnStatusPresentation? activeStatus;
 
@@ -55,6 +60,7 @@ class ChatTimelineItem {
     this.sourceMessage,
     this.sourceMessages = const [],
     this.block,
+    this.backendQuestion,
     this.activeStatus,
     this.statusAnchorKey,
     this.rowAnchorKey,

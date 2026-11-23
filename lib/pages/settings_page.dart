@@ -7,6 +7,7 @@ import '../models/skill/duplicate_skill_invocation_mode.dart';
 import '../models/skill/skill_descriptor.dart';
 import '../models/tool/tool_policy.dart';
 import '../providers/chat_providers.dart';
+import '../providers/dsh_connection_providers.dart';
 import '../services/llm_model_test_service.dart';
 import '../theme/app_motion.dart';
 import '../theme/app_radius.dart';
@@ -14,6 +15,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_theme_controller.dart';
 import '../theme/app_theme_spec.dart';
 import '../widgets/settings/immersive_settings_scaffold.dart';
+import '../widgets/settings/settings_form_controls.dart';
 import '../widgets/settings/settings_row.dart';
 import '../widgets/settings/settings_summary_group.dart';
 import '../widgets/settings/settings_value_badge.dart';
@@ -25,6 +27,55 @@ class SettingsPage extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _DshConnectionForm extends StatefulWidget {
+  const _DshConnectionForm();
+
+  @override
+  State<_DshConnectionForm> createState() => _DshConnectionFormState();
+}
+
+class _DshConnectionFormState extends State<_DshConnectionForm> {
+  final _launchUrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _launchUrl.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    try {
+      final config = DshDebugConnection.fromLaunchUrl(_launchUrl.text);
+      Navigator.of(context).pop(config);
+    } on FormatException {
+      setState(() => _error = '请输入含启动令牌的 DSH 地址');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = Theme.of(context).extension<AppSpacing>()!;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SettingsTextInputField(
+          label: 'DSH 启动地址',
+          hintText: '粘贴含令牌的启动地址',
+          controller: _launchUrl,
+          obscureText: true,
+          textInputAction: TextInputAction.done,
+          onFieldSubmitted: (_) => _apply(),
+          errorText: _error,
+        ),
+        SizedBox(height: spacing.sm),
+        FilledButton(onPressed: _apply, child: const Text('应用')),
+      ],
+    );
+  }
 }
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
@@ -43,6 +94,25 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   String? _chatCompletionsAdapterType;
   LlmProviderConfig? _currentProvider;
   LlmProviderModel? _currentModel;
+
+  Future<void> _configureDsh() async {
+    final result = await showAppBottomSheet<DshDebugConnection>(
+      context: context,
+      mode: AppBottomSheetMode.adaptive,
+      title: 'DSH 调试连接',
+      body: const _DshConnectionForm(),
+    );
+    if (!mounted || result == null) return;
+    if (result.matches(ref.read(dshDebugConnectionProvider))) {
+      ref.invalidate(dshConnectionVerificationProvider);
+      return;
+    }
+    ref.read(dshDebugConnectionProvider.notifier).state = result;
+    final group = ref.read(currentGroupProvider);
+    if (group?.backendId == dshBackendId && group?.id != null) {
+      await ref.read(chatControllerProvider).loadMessages();
+    }
+  }
 
   @override
   void initState() {
@@ -365,6 +435,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final enabledSkillCount = _skills.where((skill) => skill.isEnabled).length;
     final showCompatibilityAdapter =
         (_chatCompletionsAdapterType ?? 'sdk').toLowerCase() != 'sdk';
+    final dshConnection = dshDebugConnectionSupported
+        ? ref.watch(dshDebugConnectionProvider)
+        : null;
+    final dshVerification = dshConnection == null
+        ? null
+        : ref.watch(dshConnectionVerificationProvider);
 
     if (isBootstrapReady && !_didScheduleBootstrapReadyLoad) {
       _didScheduleBootstrapReadyLoad = true;
@@ -389,6 +465,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
               ),
               child: Column(
                 children: [
+                  if (dshDebugConnectionSupported)
+                    SettingsSummaryGroup(
+                      title: '远端后端',
+                      children: [
+                        SettingsRow(
+                          title: 'DSH 调试连接',
+                          leading: const Icon(Icons.link),
+                          onTap: _configureDsh,
+                          subtitle: dshConnection?.origin.host,
+                          trailing: _StaticValuePill(
+                            label: dshVerification?.when(
+                                  data: (_) => '已验证',
+                                  error: (_, __) => '已配置 · 验证失败',
+                                  loading: () => '已配置 · 验证中',
+                                  skipLoadingOnReload: false,
+                                  skipLoadingOnRefresh: false,
+                                ) ??
+                                '未配置',
+                          ),
+                        ),
+                        if (dshConnection != null)
+                          SettingsRow(
+                            title: '新对话使用 DSH',
+                            leading: const Icon(Icons.chat_bubble_outline),
+                            trailing: _CompactSettingsToggle(
+                              value: ref.watch(dshDefaultForNewChatsProvider),
+                              onChanged: (value) => ref
+                                  .read(dshDefaultForNewChatsProvider.notifier)
+                                  .state = value,
+                            ),
+                          ),
+                      ],
+                    ),
                   SettingsSummaryGroup(
                           title: '模型与运行时',
                           children: [

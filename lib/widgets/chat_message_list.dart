@@ -248,7 +248,21 @@ class _ChatMessageListState extends ConsumerState<ChatMessageList> {
       timelineProjection.assistantBlocks,
       activeTurnStatus,
       hideInlineActiveStatus: shouldFloatActiveStatus,
-    );
+    ).toList();
+    final group = ref.watch(currentGroupProvider);
+    final interactionGroupId = group?.id;
+    if (interactionGroupId != null) {
+      for (final interaction in ref.watch(
+        chatBackendPendingInteractionsForSessionProvider(interactionGroupId),
+      )) {
+        if (interaction.questions.isEmpty) continue;
+        timelineItems.add(ChatTimelineItem(
+          stableKey: 'question:${interaction.reference.presentationKey}',
+          type: ChatTimelineItemType.backendQuestion,
+          backendQuestion: interaction,
+        ));
+      }
+    }
     final latestUserStableKey =
         timelineItems.lastOrNull?.type == ChatTimelineItemType.userBubble
             ? timelineItems.last.stableKey
@@ -314,14 +328,16 @@ class _ChatMessageListState extends ConsumerState<ChatMessageList> {
       _syncScrollToBottomButtonVisibility();
     });
 
-    if (messages.isEmpty) {
+    if (messages.isEmpty && timelineItems.isEmpty) {
       _resetInitialHistoryPosition();
       _resetDynamicInsetState();
       AppSettingsRepository? repository;
-      try {
-        repository = ref.read(appSettingsRepositoryProvider);
-      } on UnimplementedError {
-        repository = null;
+      if (group == null || group.backendId == localAgentBackendId) {
+        try {
+          repository = ref.read(appSettingsRepositoryProvider);
+        } on UnimplementedError {
+          repository = null;
+        }
       }
       _scheduleActiveStatusVisibilitySync(
         activeStatus: null,

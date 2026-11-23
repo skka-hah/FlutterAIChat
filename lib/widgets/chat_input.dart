@@ -16,6 +16,7 @@ import 'chat_input_attachment_strip.dart';
 import 'context_window/context_window_usage_indicator.dart';
 import '../models/chat/send_message_request.dart';
 import '../models/chat/chat_attachment.dart';
+import '../models/chat_group.dart';
 import '../models/llm/llm_provider_config.dart';
 import '../models/llm/llm_provider_model.dart';
 import '../models/skill/skill_catalog_entry.dart';
@@ -138,6 +139,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
   }
 
   Future<void> _refreshModelChipLabel(AppSettingsRepository repository) async {
+    if (!mounted) return;
+    final modelGroup = ref.read(currentGroupProvider);
+    if (!_isLocalBackend(modelGroup)) return;
     final runtime = ref.read(currentSessionRuntimeConfigProvider);
     final providers = await repository.getProviders();
     String? nextLabel;
@@ -169,7 +173,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
           )
           ?.displayName;
     }
-    if (!mounted) {
+    if (!mounted ||
+        !identical(ref.read(currentGroupProvider), modelGroup) ||
+        ref.read(currentSessionRuntimeConfigProvider) != runtime) {
       return;
     }
     final resolvedLabel = nextLabel ?? '未配置模型';
@@ -180,6 +186,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       _selectedModelChipLabel = resolvedLabel;
     });
   }
+
+  bool _isLocalBackend(ChatGroup? group) =>
+      group == null || group.backendId == localAgentBackendId;
 
   void _removeSlashSuggestionsOverlay() {
     _slashSuggestionsOverlayEntry?.remove();
@@ -197,7 +206,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       return;
     }
     final focusNode = _listenedFocusNode;
-    final shouldShow = _activeSlashSuggestions.isNotEmpty &&
+    final shouldShow = _isLocalBackend(ref.read(currentGroupProvider)) &&
+        _activeSlashSuggestions.isNotEmpty &&
         _slashSuggestionsDismissedText != (_listenedController?.text ?? '') &&
         ((focusNode?.hasFocus == true) ||
             _extractSlashQuery(_listenedController?.text ?? '') != null);
@@ -245,11 +255,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
   void _handleSlashSuggestionSelected(_SlashSuggestionItem item) {
     final controller = _listenedController;
-    if (controller == null) {
+    if (controller == null || !_isLocalBackend(ref.read(currentGroupProvider))) {
       return;
     }
     if (item.promotesToCommandNode) {
-      ref.read(composerDocumentControllerProvider).insertCommand(item.insertText);
+      ref
+          .read(composerDocumentControllerProvider)
+          .insertCommand(item.insertText);
       controller.clear();
     } else {
       final selection = '${item.insertText} ';
@@ -277,13 +289,22 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final spacing = Theme.of(context).extension<AppSpacing>()!;
     final radius = Theme.of(context).extension<AppRadius>()!;
     final colors = Theme.of(context).extension<AppThemeSpec>()!;
-    final contextWindowSnapshot = ref.watch(contextWindowSnapshotProvider);
-    final skillCatalog = ref.watch(enabledSkillCatalogProvider);
+    final backendId = ref.watch(
+      currentGroupProvider.select((group) => group?.backendId),
+    );
+    final isLocalBackend = backendId == null || backendId == localAgentBackendId;
+    final contextWindowSnapshot =
+        isLocalBackend ? ref.watch(contextWindowSnapshotProvider) : null;
+    final backendCapabilities = ref.watch(chatBackendCapabilitiesProvider);
+    final skillCatalog =
+        isLocalBackend ? ref.watch(enabledSkillCatalogProvider) : null;
     AppSettingsRepository? settingsRepository;
-    try {
-      settingsRepository = ref.read(appSettingsRepositoryProvider);
-    } on UnimplementedError {
-      settingsRepository = null;
+    if (isLocalBackend) {
+      try {
+        settingsRepository = ref.read(appSettingsRepositoryProvider);
+      } on UnimplementedError {
+        settingsRepository = null;
+      }
     }
     if (settingsRepository != null) {
       final repository = settingsRepository;
@@ -303,11 +324,16 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     final isStreamingResponse = sendPhase == ChatSendPhase.streamingResponse;
     final isAwaitingConfirmation =
         sendPhase == ChatSendPhase.awaitingConfirmation;
-    final isCancellablePhase = sendPhase == ChatSendPhase.queued ||
-        sendPhase == ChatSendPhase.preparing ||
-        sendPhase == ChatSendPhase.executingTool ||
-        sendPhase == ChatSendPhase.streamingResponse;
-    final isBlockingPhase = isCancellablePhase;
+    final isBackendBusy = sendPhase != ChatSendPhase.idle;
+    final isCancellablePhase = backendCapabilities.canStop &&
+        (sendPhase == ChatSendPhase.queued ||
+            sendPhase == ChatSendPhase.preparing ||
+            sendPhase == ChatSendPhase.executingTool ||
+            sendPhase == ChatSendPhase.streamingResponse);
+    final isBlockingPhase = isBackendBusy &&
+        !isCancellablePhase &&
+        !backendCapabilities.canQueueInput &&
+        !backendCapabilities.canSteer;
     final isBootstrapReady = bootstrapState.isReady;
     final isComposerLocked = isVoiceSessionActive;
     final isComposerEditable = !isComposerLocked;
@@ -322,11 +348,13 @@ class _ChatInputState extends ConsumerState<ChatInput> {
             : '发送消息';
     final isSendButtonEnabled = isBootstrapReady &&
         (isCancellablePhase || (!isBlockingPhase && !isAwaitingConfirmation));
-    _activeSlashSuggestions = _resolveActiveSlashSuggestions(
-      text: textController.text,
-      isVoiceSessionActive: isVoiceSessionActive,
-      skillCatalog: skillCatalog,
-    );
+    _activeSlashSuggestions = isLocalBackend
+        ? _resolveActiveSlashSuggestions(
+            text: textController.text,
+            isVoiceSessionActive: isVoiceSessionActive,
+            skillCatalog: skillCatalog,
+          )
+        : const [];
     if (!identical(_listenedVoiceController, voiceInputController)) {
       _listenedVoiceController?.removeListener(_handleVoiceStateChanged);
       _listenedVoiceController = voiceInputController;
@@ -375,7 +403,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       try {
         await chatController.compactCurrentSession();
       } catch (error) {
-        if (!mounted) {
+        if (!context.mounted) {
           return true;
         }
         ScaffoldMessenger.of(context)
@@ -391,6 +419,9 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     }
 
     Future<void> submitCurrentInput() async {
+      final sendingGroup = ref.read(currentGroupProvider);
+      final isRemote = sendingGroup != null &&
+          sendingGroup.backendId != localAgentBackendId;
       final pendingText = composerDocumentController.exportPlainText();
       final pendingAttachments = List<ChatAttachment>.from(composerAttachments);
       final messenger = ScaffoldMessenger.of(context);
@@ -434,8 +465,20 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         );
         return;
       }
-      final handledSlashCommand = await handleSlashCommand();
-      if (handledSlashCommand) {
+      if (pendingAttachments.isNotEmpty &&
+          !backendCapabilities.canAttachFiles) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text('当前会话后端不支持附件。'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        return;
+      }
+      final handledSlashCommand = !isRemote && await handleSlashCommand();
+      if (handledSlashCommand || !context.mounted) {
         return;
       }
       final allowUnsupportedImageInputAttempt =
@@ -480,6 +523,12 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         if (!mounted) {
           return;
         }
+        if (isRemote &&
+            ref.read(currentGroupProvider)?.createdAt == sendingGroup.createdAt &&
+            composerDocumentController.exportPlainText().isEmpty) {
+          textController.text = pendingText;
+          composerDocumentController.setPlainText(pendingText);
+        }
         messenger
           ..hideCurrentSnackBar()
           ..showSnackBar(
@@ -500,15 +549,19 @@ class _ChatInputState extends ConsumerState<ChatInput> {
 
     Future<void> openModelPicker() async {
       final repository = settingsRepository;
-      if (repository == null) {
+      final modelGroup = ref.read(currentGroupProvider);
+      if (repository == null || !_isLocalBackend(modelGroup)) {
         return;
       }
+      bool stillSelected() =>
+          mounted && identical(ref.read(currentGroupProvider), modelGroup);
       final navigator = Navigator.of(context);
+      final overlayState = Overlay.of(context);
       final providers = await repository.getProviders();
-      final runtime = ref.read(currentSessionRuntimeConfigProvider);
-      if (!mounted) {
+      if (!context.mounted || !overlayState.mounted || !stillSelected()) {
         return;
       }
+      final runtime = ref.read(currentSessionRuntimeConfigProvider);
       if (providers.isEmpty) {
         await navigator.push(
           MaterialPageRoute(
@@ -527,8 +580,7 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       final provider = selectedProvider ?? providers.first;
       final renderObject =
           _modelChipKey.currentContext?.findRenderObject() as RenderBox?;
-      final overlay =
-          Overlay.of(context).context.findRenderObject() as RenderBox?;
+      final overlay = overlayState.context.findRenderObject() as RenderBox?;
       if (renderObject == null || overlay == null) {
         return;
       }
@@ -558,20 +610,19 @@ class _ChatInputState extends ConsumerState<ChatInput> {
         },
       );
 
-      if (!mounted || result == null) {
+      if (!stillSelected() || result == null) {
         return;
       }
 
-      final currentGroup = ref.read(currentGroupProvider);
       final runtimeGroupId =
-          currentGroup?.id ?? SessionRuntimeConfigService.draftGroupId;
-      final updatedRuntime = await ref
-          .read(sessionRuntimeConfigServiceProvider)
-          .updateRuntime(
-            groupId: runtimeGroupId,
-            providerId: result.providerId,
-            modelId: result.modelId,
-          );
+          modelGroup?.id ?? SessionRuntimeConfigService.draftGroupId;
+      final updatedRuntime =
+          await ref.read(sessionRuntimeConfigServiceProvider).updateRuntime(
+                groupId: runtimeGroupId,
+                providerId: result.providerId,
+                modelId: result.modelId,
+              );
+      if (!stillSelected()) return;
       ref.read(currentSessionRuntimeConfigProvider.notifier).state =
           updatedRuntime;
       await repository.selectProviderAndModel(
@@ -581,9 +632,11 @@ class _ChatInputState extends ConsumerState<ChatInput> {
       await _refreshModelChipLabel(repository);
     }
 
-    final modelChipLabel = settingsRepository == null
-        ? '未配置模型'
-        : (_selectedModelChipLabel ?? '未配置模型');
+    final modelChipLabel = !isLocalBackend
+        ? backendId.toUpperCase()
+        : settingsRepository == null
+            ? '未配置模型'
+            : (_selectedModelChipLabel ?? '未配置模型');
     final screenWidth = MediaQuery.of(context).size.width;
     final modelChipMaxTextWidth = screenWidth < 700 ? 132.0 : 156.0;
 
@@ -832,7 +885,8 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                               key: const ValueKey('chat-input-bottom-bar'),
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                if (attachmentPicker != null)
+                                if (attachmentPicker != null &&
+                                    backendCapabilities.canAttachFiles)
                                   Padding(
                                     padding:
                                         EdgeInsets.only(right: spacing.xxs + 2),
@@ -1110,23 +1164,24 @@ class _ChatInputState extends ConsumerState<ChatInput> {
                                   ),
                                 ),
                                 const Spacer(),
-                                contextWindowSnapshot.maybeWhen(
-                                  data: (snapshot) {
-                                    if (snapshot == null) {
-                                      return const SizedBox.shrink();
-                                    }
-                                    return Padding(
-                                      padding: EdgeInsets.only(
-                                          right: spacing.xxs + 2),
-                                      child: ContextWindowUsageIndicator(
-                                        snapshot: snapshot,
-                                        onTap: widget.onContextWindowPressed ??
-                                            () {},
-                                      ),
-                                    );
-                                  },
-                                  orElse: () => const SizedBox.shrink(),
-                                ),
+                                if (contextWindowSnapshot != null)
+                                  contextWindowSnapshot.maybeWhen(
+                                    data: (snapshot) {
+                                      if (snapshot == null) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Padding(
+                                        padding: EdgeInsets.only(
+                                            right: spacing.xxs + 2),
+                                        child: ContextWindowUsageIndicator(
+                                          snapshot: snapshot,
+                                          onTap: widget.onContextWindowPressed ??
+                                              () {},
+                                        ),
+                                      );
+                                    },
+                                    orElse: () => const SizedBox.shrink(),
+                                  ),
                                 Semantics(
                                   container: true,
                                   button: true,
@@ -1276,35 +1331,39 @@ class _ChatInputState extends ConsumerState<ChatInput> {
     required bool isVoiceSessionActive,
     AsyncValue<List<SkillCatalogEntry>>? skillCatalog,
   }) {
+    final backendId = ref.read(currentGroupProvider)?.backendId;
+    if (backendId != null && backendId != localAgentBackendId) {
+      return const [];
+    }
     final AsyncValue<List<SkillCatalogEntry>> resolvedSkillCatalog =
         skillCatalog ?? ref.read(enabledSkillCatalogProvider);
     final slashQuery = isVoiceSessionActive ? null : _extractSlashQuery(text);
     final commandSuggestions = _resolveSlashCommandSuggestions(slashQuery);
-    final slashSuggestions = resolvedSkillCatalog
-        .maybeWhen<List<_SlashSuggestionItem>>(
-          data: (skills) {
-            if (slashQuery == null) {
-              return const <_SlashSuggestionItem>[];
-            }
-            return skills
-                .where((skill) {
-                  final query = slashQuery.toLowerCase();
-                  return skill.id.toLowerCase().contains(query) ||
-                      skill.name.toLowerCase().contains(query) ||
-                      skill.description.toLowerCase().contains(query);
-                })
-                .take(5)
-                .map(
-                  (skill) => _SlashSuggestionItem.skill(
-                    title: skill.id,
-                    subtitle: skill.description,
-                    insertText: '/${skill.id}',
-                  ),
-                )
-                .toList(growable: false);
-          },
-          orElse: () => const <_SlashSuggestionItem>[],
-        );
+    final slashSuggestions =
+        resolvedSkillCatalog.maybeWhen<List<_SlashSuggestionItem>>(
+      data: (skills) {
+        if (slashQuery == null) {
+          return const <_SlashSuggestionItem>[];
+        }
+        return skills
+            .where((skill) {
+              final query = slashQuery.toLowerCase();
+              return skill.id.toLowerCase().contains(query) ||
+                  skill.name.toLowerCase().contains(query) ||
+                  skill.description.toLowerCase().contains(query);
+            })
+            .take(5)
+            .map(
+              (skill) => _SlashSuggestionItem.skill(
+                title: skill.id,
+                subtitle: skill.description,
+                insertText: '/${skill.id}',
+              ),
+            )
+            .toList(growable: false);
+      },
+      orElse: () => const <_SlashSuggestionItem>[],
+    );
     return <_SlashSuggestionItem>[
       ...commandSuggestions,
       ...slashSuggestions,

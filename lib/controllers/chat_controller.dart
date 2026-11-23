@@ -80,12 +80,25 @@ class ChatController {
   }
 
   Future<void> sendMessageRequest(SendMessageRequest request) async {
+    final initialGroup = _ref.read(currentGroupProvider);
+    final isRemote =
+        initialGroup != null && initialGroup.backendId != localAgentBackendId;
     Logger.i(
       'ChatController',
       'sendMessageRequest called',
     );
     try {
-      final group = _ref.read(currentGroupProvider);
+      var group = initialGroup;
+      if (group != null &&
+          group.id == null &&
+          group.backendId != localAgentBackendId) {
+        if (request.text.trim().isEmpty) return;
+        final coordinator = _sessionCoordinator;
+        if (coordinator is! DefaultChatSessionCoordinator) {
+          throw StateError('当前后端无法保存会话');
+        }
+        group = await coordinator.persistExternalDraft(group, request.text);
+      }
       if (group?.id == null) {
         await _sendCoordinator.sendMessageRequest(
           request,
@@ -95,19 +108,39 @@ class ChatController {
       } else {
         final session = chatBackendSessionFor(group!);
         await _backendRegistry.resolve(session.backendId).sendMessage(
-              session,
-              request,
-              RiverpodChatBackendPresentationSink(_ref, session),
-              onTurnCompleted: () => _summaryController.scheduleAutoSummary(
+          session,
+          request,
+          RiverpodChatBackendPresentationSink(_ref, session),
+          onTurnCompleted: () {
+            if (session.backendId == localAgentBackendId) {
+              _summaryController.scheduleAutoSummary(
                 groupId: session.appSessionId,
-              ),
-            );
+              );
+            }
+          },
+        );
+        if (session.backendId != localAgentBackendId) {
+          try {
+            await _ref
+                .read(databaseProvider)
+                .updateGroupLastMessageTime(session.appSessionId);
+          } catch (_) {
+            Logger.w('ChatController', 'Remote chat recency update failed');
+          }
+        }
       }
       Logger.i(
         'ChatController',
         'sendMessageRequest completed',
       );
     } catch (error, stackTrace) {
+      if (isRemote) {
+        Logger.w('ChatController', 'Remote send failed');
+        Error.throwWithStackTrace(
+          StateError('无法发送到远端会话，请检查连接设置'),
+          StackTrace.empty,
+        );
+      }
       Logger.e('ChatController', 'sendMessageRequest failed', error);
       Logger.e('ChatController', 'sendMessageRequest stack trace', stackTrace);
       rethrow;
@@ -133,10 +166,22 @@ class ChatController {
     final group = _ref.read(currentGroupProvider);
     if (group?.id != null) {
       final session = chatBackendSessionFor(group!);
+      final backend = _backendRegistry.lookup(session.backendId);
+      if (backend == null) return;
+      final stop = backend.stop(
+          session, RiverpodChatBackendPresentationSink(_ref, session));
+      if (session.backendId == localAgentBackendId) {
+        unawaited(stop);
+        return;
+      }
       unawaited(
-        _backendRegistry
-            .resolve(session.backendId)
-            .stop(session, RiverpodChatBackendPresentationSink(_ref, session)),
+        stop.catchError((Object _) {
+          _ref
+              .read(
+                chatBackendSessionErrorProvider(session.appSessionId).notifier,
+              )
+              .state = '无法停止远端会话';
+        }),
       );
       return;
     }
