@@ -240,6 +240,7 @@ To add or extend provider support:
 ## Implementation Notes
 
 - Do not expose machine-specific absolute filesystem paths in responses, Markdown link targets, artifacts, repository files, or shared logs. Use repository-relative paths for this project, commit-pinned links for external repositories, and placeholders or environment variables in command examples.
+- Run `python3 scripts/lint_private_paths.py` before committing to check staged additions for common private path formats. Use `python3 scripts/lint_private_paths.py --all` to scan tracked and non-ignored untracked text files. The GitHub pull request check checks added lines against the merge base. Review response text separately because the repository check cannot inspect chat replies.
 - The app is still internal-only. Unless a task explicitly requires it, do not add backward-compatibility layers, migration shims, fallback parsing for retired schemas, or legacy-preservation code.
 - `assets/debug/test_cases.json` is the single source of truth for debug/e2e manual test cases.
 - `config/local_defaults.json` is a runtime-facing local defaults file; schema changes must consider app boot config, settings fallback behavior, and automation scripts that read it directly.
