@@ -1,4 +1,3 @@
-import 'package:ai_chat/controllers/chat_send_coordinator.dart';
 import 'package:ai_chat/models/chat_message.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_request.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_response.dart';
@@ -15,12 +14,18 @@ abstract class ChatInteractionCoordinator {
 
 class DefaultChatInteractionCoordinator implements ChatInteractionCoordinator {
   final Ref _ref;
-  final ChatSendCoordinator _sendCoordinator;
+  final Future<void> Function(
+    ChatMessage message,
+    AskUserQuestionResponse response,
+  ) _submitQuestionToBackend;
 
   DefaultChatInteractionCoordinator(
     this._ref, {
-    required ChatSendCoordinator sendCoordinator,
-  }) : _sendCoordinator = sendCoordinator;
+    required Future<void> Function(
+      ChatMessage message,
+      AskUserQuestionResponse response,
+    ) submitQuestionToBackend,
+  }) : _submitQuestionToBackend = submitQuestionToBackend;
 
   @override
   Future<void> submitQuestionAnswers(ChatMessage message) async {
@@ -53,14 +58,12 @@ class DefaultChatInteractionCoordinator implements ChatInteractionCoordinator {
       }
     }
 
-    await _sendCoordinator.submitQuestionAnswers(
-      message,
-      response: AskUserQuestionResponse(
-        answersByQuestionId: answersByQuestionId,
-        selectedOptionLabelsByQuestionId: selectedByQuestionId,
-        freeTextAnswersByQuestionId: freeTextByQuestionId,
-      ),
+    final response = AskUserQuestionResponse(
+      answersByQuestionId: answersByQuestionId,
+      selectedOptionLabelsByQuestionId: selectedByQuestionId,
+      freeTextAnswersByQuestionId: freeTextByQuestionId,
     );
+    await _submitQuestionToBackend(message, response);
     _ref.read(questionCardDraftsProvider.notifier).clearDraft(messageId);
   }
 

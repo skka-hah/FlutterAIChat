@@ -47,7 +47,7 @@ class DatabaseHelper implements ChatStorage {
 
       return await openDatabase(
         path,
-        version: 18,
+        version: 19,
         onCreate: (Database db, int version) async {
           Logger.i(_tag, '创建数据库表...');
           // 创建分组表
@@ -59,7 +59,9 @@ class DatabaseHelper implements ChatStorage {
               last_message_at INTEGER NOT NULL,
               system_prompt TEXT,
               is_summarized INTEGER NOT NULL DEFAULT 0,
-              workspace_id TEXT
+              workspace_id TEXT,
+              backend_id TEXT NOT NULL DEFAULT 'local_agent',
+              backend_session_id TEXT
             )
           ''');
 
@@ -108,7 +110,9 @@ class DatabaseHelper implements ChatStorage {
                 last_message_at INTEGER NOT NULL,
                 system_prompt TEXT,
                 is_summarized INTEGER NOT NULL DEFAULT 0,
-                workspace_id TEXT
+                workspace_id TEXT,
+                backend_id TEXT NOT NULL DEFAULT 'local_agent',
+                backend_session_id TEXT
               )
             ''');
             await db.execute('''
@@ -133,6 +137,14 @@ class DatabaseHelper implements ChatStorage {
             await _createSessionRuntimeMarkerTable(db);
             await _createMessageAttachmentsTable(db);
             return;
+          }
+          if (oldVersion < 19) {
+            await db.execute(
+              "ALTER TABLE chat_groups ADD COLUMN backend_id TEXT NOT NULL DEFAULT 'local_agent'",
+            );
+            await db.execute(
+              'ALTER TABLE chat_groups ADD COLUMN backend_session_id TEXT',
+            );
           }
         },
       );

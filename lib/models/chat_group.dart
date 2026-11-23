@@ -1,5 +1,9 @@
 const Object _unsetWorkspaceId = Object();
 
+/// Stable identifier used to route a conversation to its owning execution
+/// backend. Existing sessions default to the local Agent backend.
+const String localAgentBackendId = 'local_agent';
+
 class ChatGroup {
   int? id;
   String title;
@@ -8,6 +12,8 @@ class ChatGroup {
   final String? systemPrompt;
   final bool isSummarized;
   final String? workspaceId;
+  final String backendId;
+  final String? backendSessionId;
 
   ChatGroup({
     this.id,
@@ -17,8 +23,10 @@ class ChatGroup {
     this.systemPrompt,
     this.isSummarized = false,
     this.workspaceId,
-  }) : createdAt = createdAt ?? DateTime.now(),
-       lastMessageAt = lastMessageAt ?? DateTime.now();
+    this.backendId = localAgentBackendId,
+    this.backendSessionId,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        lastMessageAt = lastMessageAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() {
     return {
@@ -29,6 +37,8 @@ class ChatGroup {
       'system_prompt': systemPrompt,
       'is_summarized': isSummarized ? 1 : 0,
       'workspace_id': workspaceId,
+      'backend_id': backendId,
+      'backend_session_id': backendSessionId,
     };
   }
 
@@ -37,10 +47,15 @@ class ChatGroup {
       id: map['id'],
       title: map['title'],
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at']),
-      lastMessageAt: DateTime.fromMillisecondsSinceEpoch(map['last_message_at']),
+      lastMessageAt:
+          DateTime.fromMillisecondsSinceEpoch(map['last_message_at']),
       systemPrompt: map['system_prompt'],
       isSummarized: map['is_summarized'] == 1,
       workspaceId: map['workspace_id'] as String?,
+      backendId: (map['backend_id'] as String?)?.trim().isNotEmpty == true
+          ? (map['backend_id'] as String).trim()
+          : localAgentBackendId,
+      backendSessionId: map['backend_session_id'] as String?,
     );
   }
 
@@ -52,6 +67,8 @@ class ChatGroup {
     String? systemPrompt,
     bool? isSummarized,
     Object? workspaceId = _unsetWorkspaceId,
+    String? backendId,
+    Object? backendSessionId = _unsetWorkspaceId,
   }) {
     return ChatGroup(
       id: id ?? this.id,
@@ -63,6 +80,10 @@ class ChatGroup {
       workspaceId: identical(workspaceId, _unsetWorkspaceId)
           ? this.workspaceId
           : workspaceId as String?,
+      backendId: backendId ?? this.backendId,
+      backendSessionId: identical(backendSessionId, _unsetWorkspaceId)
+          ? this.backendSessionId
+          : backendSessionId as String?,
     );
   }
 }

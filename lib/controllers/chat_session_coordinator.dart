@@ -5,6 +5,8 @@ import 'package:ai_chat/providers/chat_dependency_providers.dart';
 import 'package:ai_chat/providers/chat_send_state_providers.dart';
 import 'package:ai_chat/providers/chat_ui_providers.dart';
 import 'package:ai_chat/services/agent_run_manager.dart';
+import 'package:ai_chat/providers/chat_backend_providers.dart';
+import 'package:ai_chat/services/chat_backends/chat_backend_registry.dart';
 import 'package:ai_chat/utils/logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -31,11 +33,16 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
   static const int _pageSize = 20;
 
   final Ref _ref;
+  final ChatBackendRegistry _backendRegistry;
+  final Map<int, String?> _externalHistoryCursors = {};
   int _selectionVersion = 0;
   int _historyVersion = 0;
   bool _isRefreshingHistory = false;
 
-  DefaultChatSessionCoordinator(this._ref);
+  DefaultChatSessionCoordinator(
+    this._ref, {
+    required ChatBackendRegistry backendRegistry,
+  }) : _backendRegistry = backendRegistry;
 
   @override
   Future<void> loadGroups() async {
@@ -142,6 +149,19 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
           await run.done;
         }
       }
+      final group = await dbHelper.getGroupById(id);
+      if (group != null && group.backendId != localAgentBackendId) {
+        final session = chatBackendSessionFor(group);
+        final backend = _backendRegistry.resolve(session.backendId);
+        _ref
+            .read(chatBackendPresentationGenerationProvider(id).notifier)
+            .state++;
+        final presentation = RiverpodChatBackendPresentationSink(_ref, session);
+        await backend.stop(session, presentation);
+        await _backendRegistry
+            .resolve(session.backendId)
+            .deleteSession(session);
+      }
       await dbHelper.deleteGroup(id);
       _ref.invalidate(followUpDispatchQueueProvider(id));
       _ref.invalidate(fileToolHostAdaptersForGroupProvider(id));
@@ -185,6 +205,21 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
       Logger.d(_tag, '开始加载历史消息...');
       final dbHelper = _ref.read(databaseProvider);
       final provider = messagesForGroupProvider(groupId);
+      final group = _ref.read(currentGroupProvider)!;
+      if (group.backendId != localAgentBackendId) {
+        final session = chatBackendSessionFor(group);
+        final page =
+            await _backendRegistry.resolve(session.backendId).loadHistory(
+                  session,
+                  limit: _pageSize,
+                );
+        if (!_isSelected(selection, groupId) || history != _historyVersion) {
+          return;
+        }
+        _externalHistoryCursors[groupId] = page.nextCursor;
+        RiverpodChatBackendPresentationSink(_ref, session).replaceHistory(page);
+        return;
+      }
       final previous = _ref.read(provider);
       final previousById = {
         for (final message in previous) message.id: message
@@ -241,6 +276,35 @@ class DefaultChatSessionCoordinator implements ChatSessionCoordinator {
     try {
       final dbHelper = _ref.read(databaseProvider);
       final currentCount = _ref.read(messagesProvider).length;
+      final group = currentGroup;
+      if (group.backendId != localAgentBackendId) {
+        final session = chatBackendSessionFor(group);
+        final cursor = _externalHistoryCursors[groupId];
+        if (cursor == null) {
+          _ref.read(hasMoreMessagesProvider.notifier).state = false;
+          return;
+        }
+        final page =
+            await _backendRegistry.resolve(session.backendId).loadHistory(
+                  session,
+                  cursor: cursor,
+                  limit: _pageSize,
+                );
+        if (!_isSelected(selection, groupId) || history != _historyVersion) {
+          return;
+        }
+        if (page.messages.isEmpty) {
+          _externalHistoryCursors[groupId] = null;
+          _ref.read(hasMoreMessagesProvider.notifier).state = false;
+          return;
+        }
+        _ref
+            .read(selectedMessagesNotifierProvider)
+            .insertMessages(0, page.messages);
+        _externalHistoryCursors[groupId] = page.nextCursor;
+        _ref.read(hasMoreMessagesProvider.notifier).state = page.hasMore;
+        return;
+      }
       final totalCount = await dbHelper.getGroupMessageCount(groupId);
       if (!_isSelected(selection, groupId) || history != _historyVersion) {
         return;

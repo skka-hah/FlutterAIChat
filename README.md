@@ -91,6 +91,8 @@ flowchart TD
 
 每次运行独立创建 Harness、模型客户端与工具编排。跟进请求、文件读取记录、流式诊断和摘要计时器归属于各自会话。数据库、全局设置和实际文件写入在资源层协调。
 
+聊天命令按会话固定的 backend ID 路由。本地 Agent 继续使用自己的 `TurnHarness`、运行池与 turn/event transcript；其他 backend 通过统一的 history、presentation 和 interaction 契约接入，不需要伪造本地 turn。既有会话升级后默认使用本地 Agent，当前不支持会话间迁移。详见[会话后端边界](./docs/architecture/chat-session-backend-boundary.md)和[双 Agent 后端改造计划](./docs/superpowers/plans/2026-11-22-dual-agent-backend-implementation-plan.md)。
+
 ## 文件沙盒
 
 - Agent 看到的是以 `/` 为根的 file-native 沙盒路径
@@ -194,6 +196,7 @@ HEADLESS_LIVE_PROVIDER_RESPONSES=my-responses-provider flutter test --tags live-
 ## 文档导航
 
 - 全局架构总览：[docs/architecture/project-architecture-overview.md](./docs/architecture/project-architecture-overview.md)
+- 会话后端边界：[docs/architecture/chat-session-backend-boundary.md](./docs/architecture/chat-session-backend-boundary.md)
 - 架构基线：[docs/architecture/2026-04-13-agent-loop-architecture-baseline.md](./docs/architecture/2026-04-13-agent-loop-architecture-baseline.md)
 - Agent Loop 边界：[docs/architecture/agent-loop-boundaries-and-decoupling.md](./docs/architecture/agent-loop-boundaries-and-decoupling.md)
 - Session Context 管理：[docs/architecture/session-context-management.md](./docs/architecture/session-context-management.md)

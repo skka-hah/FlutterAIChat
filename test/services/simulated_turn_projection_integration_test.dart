@@ -13,6 +13,8 @@ import 'package:ai_chat/models/chat_event.dart';
 import 'package:ai_chat/models/chat_group.dart';
 import 'package:ai_chat/models/chat_message.dart';
 import 'package:ai_chat/models/chat_turn.dart';
+import 'package:ai_chat/models/chat/send_message_request.dart';
+import 'package:ai_chat/models/chat/runtime_streaming_preview_state.dart';
 import 'package:ai_chat/models/context/planner_context_carrier.dart';
 import 'package:ai_chat/models/interaction/ask_user_question_response.dart';
 import 'package:ai_chat/models/llm/base_llm.dart';
@@ -28,6 +30,7 @@ import 'package:ai_chat/repositories/app_settings_repository.dart';
 import 'package:ai_chat/repositories/chat_event_repository.dart';
 import 'package:ai_chat/repositories/chat_turn_repository.dart';
 import 'package:ai_chat/services/agent_planner_service.dart';
+import 'package:ai_chat/services/chat_backends/local_agent_session_backend.dart';
 import 'package:ai_chat/services/chat_service.dart';
 import 'package:ai_chat/services/tool_call_service.dart';
 import 'package:ai_chat/services/tool_executor.dart';
@@ -107,6 +110,251 @@ void main() {
       await repository.interruptAbandonedTurns();
       expect((await database.getMessagesByGroup(group)).single.status,
           MessageStatus.interrupted);
+    });
+
+    test(
+        'external backend runs beside local Agent with isolated history and interaction ids',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final externalId = await database.insertGroup(ChatGroup(
+        title: 'external',
+        backendId: 'fake',
+        backendSessionId: 'fake-conversation-1',
+      ));
+      final localId = await database.insertGroup(ChatGroup(title: 'local'));
+      final fakeBackend = _FakeChatSessionBackend();
+      final planner = AgentPlannerService(
+        llm: _QueuedDecisionLLM([
+          const ModelTurnDecision(
+            toolCalls: [],
+            assistantMessage: 'local answer',
+            providerState: {},
+            isTerminal: true,
+          ),
+        ]),
+        toolPolicyService: await _createToolPolicyService(),
+        availableTools: const [],
+      );
+      final container = await _createContainer(
+        databaseHelper: database,
+        harness: _createHarness(
+          databaseHelper: database,
+          planner: planner,
+          toolCallService: _QueuedToolCallService(
+            chatStorage: database,
+            definitions: const {},
+            queuedResultsByTool: const {},
+          ),
+        ),
+        additionalBackends: [fakeBackend],
+      );
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+      final external = (await database.getGroupById(externalId))!;
+      final local = (await database.getGroupById(localId))!;
+
+      await chat.selectGroup(external);
+      final externalSend = chat.sendMessage('external request');
+      await fakeBackend.executionStarted.future;
+      final pending = container
+          .read(chatBackendPendingInteractionsForSessionProvider(externalId))
+          .single;
+
+      final otherExternalId = await database.insertGroup(ChatGroup(
+        title: 'other fake session',
+        backendId: 'fake',
+        backendSessionId: 'fake-conversation-2',
+      ));
+      await chat.selectGroup((await database.getGroupById(otherExternalId))!);
+      await chat.resolveBackendPendingInteraction(
+        pending,
+        action: 'continue',
+      );
+      expect(fakeBackend.resolvedInteractions, isEmpty);
+
+      await chat.selectGroup(local);
+      await chat.sendMessage('local request');
+      expect((await database.getMessagesByGroup(localId)).last.text,
+          'local answer');
+      expect((await database.getTurnsByGroup(localId)), hasLength(1));
+      expect((await database.getMessagesByGroup(externalId)), isEmpty);
+      expect(await database.getTurnsByGroup(externalId), isEmpty);
+
+      await chat.selectGroup(external);
+      expect(container.read(messagesProvider).map((message) => message.text),
+          contains('partial external output'));
+      final sourceMessage = ChatMessage(
+        id: pending.reference.messageId,
+        text: pending.prompt,
+        role: MessageRole.assistant,
+        payloadJson: {
+          'executionId': pending.reference.executionId,
+          'interactionId': pending.reference.interactionId,
+        },
+      );
+      await chat.resolveBackendInteraction(
+        sourceMessage,
+        action: 'continue',
+      );
+      await externalSend;
+
+      expect(fakeBackend.resolvedInteractions, hasLength(1));
+      expect(container.read(messagesProvider).last.text, 'external answer');
+      expect((await database.getMessagesByGroup(externalId)), isEmpty);
+      expect(await database.getTurnsByGroup(externalId), isEmpty);
+      expect((await database.getTurnsByGroup(localId)).single.status,
+          ChatTurnStatus.completed);
+    });
+
+    test('stopping an external backend preserves partial output in its session',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final sessionId = await database.insertGroup(ChatGroup(
+        title: 'external stop',
+        backendId: 'fake',
+        backendSessionId: 'fake-stop-1',
+      ));
+      final fakeBackend = _FakeChatSessionBackend();
+      final container = await _createContainer(
+        databaseHelper: database,
+        additionalBackends: [fakeBackend],
+      );
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+      await chat.selectGroup((await database.getGroupById(sessionId))!);
+
+      final send = chat.sendMessage('stop after partial output');
+      await fakeBackend.executionStarted.future;
+      chat.cancelStreamSubscription();
+      await send;
+
+      final assistant = container
+          .read(messagesProvider)
+          .lastWhere((message) => message.role == MessageRole.assistant);
+      expect(assistant.text, 'partial external output');
+      expect(assistant.status, MessageStatus.interrupted);
+      expect(container.read(sendPhaseProvider), ChatSendPhase.idle);
+      expect(await database.getTurnsByGroup(sessionId), isEmpty);
+      expect(await database.getMessagesByGroup(sessionId), isEmpty);
+    });
+
+    test(
+        'backend registry rejects duplicate ids and capabilities are session scoped',
+        () async {
+      final fakeBackend = _FakeChatSessionBackend();
+      expect(
+        () => ChatBackendRegistry([fakeBackend, fakeBackend]),
+        throwsArgumentError,
+      );
+
+      final database = _createTestDatabaseHelper();
+      final localId = await database.insertGroup(ChatGroup(title: 'local'));
+      final externalId = await database.insertGroup(ChatGroup(
+        title: 'external',
+        backendId: 'fake',
+        backendSessionId: 'fake-session-capability',
+      ));
+      final container = await _createContainer(
+        databaseHelper: database,
+        additionalBackends: [fakeBackend],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(chatControllerProvider)
+          .selectGroup((await database.getGroupById(localId))!);
+      expect(container.read(chatBackendCapabilitiesProvider).canSteer, isTrue);
+      expect(container.read(chatBackendCapabilitiesProvider).canConfirmTools,
+          isTrue);
+
+      await container
+          .read(chatControllerProvider)
+          .selectGroup((await database.getGroupById(externalId))!);
+      final externalCapabilities =
+          container.read(chatBackendCapabilitiesProvider);
+      expect(externalCapabilities.canStop, isTrue);
+      expect(externalCapabilities.canSteer, isFalse);
+      expect(externalCapabilities.canConfirmTools, isFalse);
+      expect(externalCapabilities.canAttachFiles, isFalse);
+    });
+
+    test('external history uses backend cursors without local transcript rows',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final sessionId = await database.insertGroup(ChatGroup(
+        title: 'external history',
+        backendId: 'fake',
+        backendSessionId: 'fake-session-history',
+      ));
+      final fakeBackend = _FakeChatSessionBackend(historyPageSize: 2);
+      fakeBackend.seedHistory(
+        sessionId,
+        List.generate(
+          5,
+          (index) => ChatMessage(
+            id: -1000 - index,
+            text: 'history $index',
+            role: MessageRole.user,
+            status: MessageStatus.completed,
+            timestamp: DateTime.utc(2025, 1, 1).add(Duration(minutes: index)),
+          ),
+        ),
+      );
+      final container = await _createContainer(
+        databaseHelper: database,
+        additionalBackends: [fakeBackend],
+      );
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+      await chat.selectGroup((await database.getGroupById(sessionId))!);
+      expect(container.read(messagesProvider).map((message) => message.text),
+          ['history 0', 'history 1']);
+      expect(container.read(hasMoreMessagesProvider), isTrue);
+
+      await chat.loadMoreMessages();
+      expect(container.read(messagesProvider).map((message) => message.text),
+          ['history 0', 'history 1', 'history 2', 'history 3']);
+      await chat.loadMoreMessages();
+      expect(container.read(messagesProvider).map((message) => message.text),
+          ['history 0', 'history 1', 'history 2', 'history 3', 'history 4']);
+      expect(container.read(hasMoreMessagesProvider), isFalse);
+      expect(await database.getMessagesByGroup(sessionId), isEmpty);
+      expect(await database.getTurnsByGroup(sessionId), isEmpty);
+    });
+
+    test('late backend presentation events cannot recreate a deleted session',
+        () async {
+      final database = _createTestDatabaseHelper();
+      final sessionId = await database.insertGroup(ChatGroup(
+        title: 'external delete',
+        backendId: 'fake',
+        backendSessionId: 'fake-session-delete',
+      ));
+      final fakeBackend = _FakeChatSessionBackend();
+      final container = await _createContainer(
+        databaseHelper: database,
+        additionalBackends: [fakeBackend],
+      );
+      addTearDown(container.dispose);
+      final chat = container.read(chatControllerProvider);
+      final group = (await database.getGroupById(sessionId))!;
+      await chat.selectGroup(group);
+      final session = chatBackendSessionFor(group);
+      final staleSink =
+          container.read(chatBackendPresentationSinkProvider(session));
+
+      await chat.deleteGroup(sessionId);
+      staleSink.addMessage(
+        ChatMessage(
+          text: 'late output',
+          role: MessageRole.assistant,
+          status: MessageStatus.completed,
+        ),
+      );
+
+      expect(await database.getGroupById(sessionId), isNull);
+      expect(container.read(messagesForGroupProvider(sessionId)), isEmpty);
+      expect(await database.getMessagesByGroup(sessionId), isEmpty);
     });
 
     test('a waiting question resumes only its own turn after B completes',
@@ -1750,6 +1998,7 @@ Future<ProviderContainer> _createContainer({
   required DatabaseHelper databaseHelper,
   TurnHarness? harness,
   TurnHarness Function(int groupId)? harnessFactory,
+  List<ChatSessionBackend> additionalBackends = const [],
 }) async {
   SharedPreferences.setMockInitialValues({});
   final preferences = await SharedPreferences.getInstance();
@@ -1767,8 +2016,202 @@ Future<ProviderContainer> _createContainer({
       ),
       chatServiceProvider
           .overrideWith((ref) => ChatService(llm: _NoopBaseLLM())),
+      if (additionalBackends.isNotEmpty)
+        chatSessionBackendRegistryProvider.overrideWith(
+          (ref) => ChatBackendRegistry([
+            LocalAgentSessionBackend(
+              ref,
+              sendCoordinatorReader: () =>
+                  ref.read(chatSendCoordinatorProvider),
+            ),
+            ...additionalBackends,
+          ]),
+        ),
     ],
   );
+}
+
+class _FakeChatSessionBackend implements ChatSessionBackend {
+  _FakeChatSessionBackend({this.historyPageSize = 20});
+
+  final int historyPageSize;
+  final Completer<void> executionStarted = Completer<void>();
+  final Map<int, List<ChatMessage>> _history = {};
+  final Map<int, ChatMessage> _activeAssistantMessages = {};
+  final Map<int, Completer<void>> _completionBySession = {};
+  final List<ChatBackendInteractionReference> resolvedInteractions = [];
+  int _nextMessageId = -100;
+
+  void seedHistory(int sessionId, List<ChatMessage> messages) {
+    _history[sessionId] = List<ChatMessage>.from(messages);
+    if (messages.isNotEmpty) {
+      final minId = messages
+          .map((message) => message.id ?? 0)
+          .reduce((left, right) => left < right ? left : right);
+      _nextMessageId = minId - 1;
+    }
+  }
+
+  @override
+  String get backendId => 'fake';
+
+  @override
+  ChatBackendCapabilities capabilitiesFor(ChatBackendSession session) =>
+      const ChatBackendCapabilities(
+        canStop: true,
+        canQueueInput: false,
+        canSteer: false,
+        canConfirmTools: false,
+        canAnswerQuestions: false,
+        canPaginateHistory: true,
+        canAttachFiles: false,
+        hasStreamingPreview: false,
+      );
+
+  @override
+  Future<ChatBackendHistoryPage> loadHistory(
+    ChatBackendSession session, {
+    String? cursor,
+    required int limit,
+  }) async {
+    final messages = _history[session.appSessionId] ?? const <ChatMessage>[];
+    final offset = int.tryParse(cursor ?? '0') ?? 0;
+    final end = (offset + historyPageSize).clamp(0, messages.length);
+    return ChatBackendHistoryPage(
+      messages: List.unmodifiable(messages.sublist(offset, end)),
+      nextCursor: end < messages.length ? '$end' : null,
+    );
+  }
+
+  @override
+  Future<void> deleteSession(ChatBackendSession session) async {
+    final active = _completionBySession[session.appSessionId];
+    if (active != null && !active.isCompleted) active.complete();
+    _history.remove(session.appSessionId);
+  }
+
+  @override
+  Future<void> sendMessage(
+    ChatBackendSession session,
+    SendMessageRequest request,
+    ChatBackendPresentationSink presentation, {
+    required void Function() onTurnCompleted,
+  }) async {
+    final history = _history.putIfAbsent(session.appSessionId, () => []);
+    final user = ChatMessage(
+      id: _nextMessageId--,
+      text: request.text,
+      role: MessageRole.user,
+      status: MessageStatus.completed,
+    );
+    final assistant = ChatMessage(
+      id: _nextMessageId--,
+      text: 'partial external output',
+      role: MessageRole.assistant,
+      status: MessageStatus.generating,
+    );
+    history.addAll([user, assistant]);
+    _activeAssistantMessages[session.appSessionId] = assistant;
+    presentation.addMessage(user);
+    presentation.addMessage(assistant);
+    presentation.setStreamingPreview(
+      RuntimeStreamingPreviewState(
+        messages: [
+          RuntimeStreamingPreviewMessage(
+            messageId: 'fake-preview-${session.appSessionId}',
+            createdAt: DateTime.utc(2025),
+            updatedAt: DateTime.utc(2025),
+            streamTurnId: 'fake-run-${session.appSessionId}',
+            blocks: [
+              RuntimeStreamingPreviewBlock(
+                contentBlockId: 'fake-text-${session.appSessionId}',
+                blockType: StreamingContentBlockType.text,
+                createdAt: DateTime.utc(2025),
+                updatedAt: DateTime.utc(2025),
+                text: 'partial external output',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+    presentation.setExecutionState(ChatBackendExecutionState.streaming);
+
+    final completion = Completer<void>();
+    _completionBySession[session.appSessionId] = completion;
+    final interaction = ChatBackendInteractionReference(
+      backendId: backendId,
+      appSessionId: session.appSessionId,
+      executionId: 'fake-run-${session.appSessionId}',
+      interactionId: 'fake-interaction-${session.appSessionId}',
+      kind: 'fake_approval',
+      messageId: assistant.id,
+    );
+    presentation.setPendingInteractions([
+      ChatBackendPendingInteraction(
+        reference: interaction,
+        title: 'Continue fake execution?',
+        prompt: 'The fake backend is holding its run for an interaction.',
+        actions: const ['continue'],
+      ),
+    ]);
+    presentation.setExecutionState(
+      ChatBackendExecutionState.awaitingInteraction,
+    );
+    if (!executionStarted.isCompleted) executionStarted.complete();
+
+    await completion.future;
+    _completionBySession.remove(session.appSessionId);
+    _activeAssistantMessages.remove(session.appSessionId);
+    if (assistant.status == MessageStatus.interrupted) return;
+    assistant
+      ..text = 'external answer'
+      ..status = MessageStatus.completed;
+    presentation.replaceMessage(assistant);
+    presentation.setStreamingPreview(const RuntimeStreamingPreviewState());
+    presentation.setPendingInteractions(const []);
+    presentation.setExecutionState(ChatBackendExecutionState.idle);
+    onTurnCompleted();
+  }
+
+  @override
+  Future<void> stop(
+    ChatBackendSession session,
+    ChatBackendPresentationSink presentation,
+  ) async {
+    final assistant = _activeAssistantMessages[session.appSessionId];
+    if (assistant != null) {
+      assistant.status = MessageStatus.interrupted;
+      presentation.replaceMessage(assistant);
+    }
+    presentation.setStreamingPreview(const RuntimeStreamingPreviewState());
+    presentation.setPendingInteractions(const []);
+    presentation.setExecutionState(ChatBackendExecutionState.idle);
+    final completion = _completionBySession[session.appSessionId];
+    if (completion != null && !completion.isCompleted) completion.complete();
+  }
+
+  @override
+  Future<void> resolveInteraction(
+    ChatBackendSession session,
+    ChatBackendInteractionReference interaction, {
+    required String action,
+    Map<String, Object?> payload = const {},
+    required ChatBackendPresentationSink presentation,
+  }) async {
+    if (interaction.backendId != backendId ||
+        interaction.appSessionId != session.appSessionId ||
+        interaction.executionId != 'fake-run-${session.appSessionId}' ||
+        interaction.interactionId !=
+            'fake-interaction-${session.appSessionId}') {
+      return;
+    }
+    resolvedInteractions.add(interaction);
+    if (action == 'continue') {
+      final completion = _completionBySession[session.appSessionId];
+      if (completion != null && !completion.isCompleted) completion.complete();
+    }
+  }
 }
 
 Future<void> _consumeEventStream({

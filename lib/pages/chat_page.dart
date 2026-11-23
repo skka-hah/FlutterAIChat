@@ -12,6 +12,7 @@ import '../widgets/chat_blocks/unified_turn_status_bar.dart';
 import '../widgets/chat_message_list.dart';
 import '../widgets/chat_message_list_skeleton.dart';
 import '../widgets/chat_input.dart';
+import '../widgets/chat_backend_interaction_bottom_bar.dart';
 import '../widgets/chat_drawer.dart';
 import '../widgets/chat_header_button.dart';
 import '../widgets/chat_top_bar_button.dart';
@@ -61,6 +62,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isLoadingMore = ref.watch(isLoadingMoreProvider);
     final pendingConfirmation =
         ref.watch(activePendingToolConfirmationProvider);
+    final pendingBackendInteraction =
+        ref.watch(activeChatBackendPendingInteractionProvider);
+    final backendCapabilities = ref.watch(chatBackendCapabilitiesProvider);
     final traceSnapshot = ref.watch(streamingTraceSnapshotProvider);
     final traceOverlayState =
         ref.watch(streamingTraceOverlayControllerProvider);
@@ -205,7 +209,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          if (pendingConfirmation != null)
+                                          if (pendingBackendInteraction != null)
+                                            ChatBackendInteractionBottomBar(
+                                              interaction:
+                                                  pendingBackendInteraction,
+                                              onAction: (action) => chatController
+                                                  .resolveBackendPendingInteraction(
+                                                pendingBackendInteraction,
+                                                action: action,
+                                              ),
+                                            ),
+                                          if (pendingConfirmation != null &&
+                                              backendCapabilities
+                                                  .canConfirmTools)
                                             ToolConfirmationBottomBar(
                                               message:
                                                   pendingConfirmation.message,

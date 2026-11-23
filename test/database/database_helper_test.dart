@@ -8,6 +8,7 @@ import 'package:ai_chat/models/session/session_runtime_config.dart';
 import 'package:ai_chat/models/session/session_runtime_marker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -21,7 +22,7 @@ void main() {
       () {
     final source = File('lib/database/database_helper.dart').readAsStringSync();
 
-    expect(source, contains('version: 18'));
+    expect(source, contains('version: 19'));
     expect(
       source,
       contains(RegExp(r'CREATE TABLE chat_turns \(')),
@@ -66,6 +67,110 @@ void main() {
       contains(RegExp(r'CREATE UNIQUE INDEX idx_chat_events_turn_id_sequence')),
     );
     expect(source, contains('if (oldVersion < 18)'));
+    expect(source, contains('if (oldVersion < 19)'));
+  });
+
+  test('version 18 sessions upgrade without losing existing local data',
+      () async {
+    final databaseName =
+        'database_helper_backend_migration_${DateTime.now().microsecondsSinceEpoch}.db';
+    final path = p.join(await getDatabasesPath(), databaseName);
+    final legacy = await openDatabase(
+      path,
+      version: 18,
+      onCreate: (db, _) async {
+        await db.execute('''
+          CREATE TABLE chat_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            last_message_at INTEGER NOT NULL,
+            system_prompt TEXT,
+            is_summarized INTEGER NOT NULL DEFAULT 0,
+            workspace_id TEXT
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            role TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'initial',
+            reasoning_content TEXT,
+            content_type TEXT NOT NULL DEFAULT 'plainText',
+            payload_json TEXT,
+            reference_json TEXT
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE chat_turns (
+            id INTEGER PRIMARY KEY,
+            group_id INTEGER NOT NULL,
+            status TEXT NOT NULL
+          )
+        ''');
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await db.insert('chat_groups', {
+          'id': 41,
+          'title': '待审批的旧会话',
+          'created_at': now,
+          'last_message_at': now,
+          'system_prompt': 'keep this prompt',
+        });
+        await db.insert('messages', {
+          'id': 73,
+          'group_id': 41,
+          'text': '保留的消息',
+          'role': 'assistant',
+          'timestamp': now,
+          'status': 'completed',
+        });
+        await db.insert('chat_turns', {
+          'id': 97,
+          'group_id': 41,
+          'status': 'awaitingToolConfirmation',
+        });
+      },
+    );
+    await legacy.close();
+
+    final upgraded = await DatabaseHelper(databaseName: databaseName).database;
+    final group =
+        (await upgraded.query('chat_groups', where: 'id = 41')).single;
+    final message = (await upgraded.query('messages', where: 'id = 73')).single;
+    final pendingTurn =
+        (await upgraded.query('chat_turns', where: 'id = 97')).single;
+
+    expect(group['title'], '待审批的旧会话');
+    expect(group['backend_id'], 'local_agent');
+    expect(group['backend_session_id'], isNull);
+    expect(message['text'], '保留的消息');
+    expect(pendingTurn['status'], 'awaitingToolConfirmation');
+  });
+
+  test('ChatGroup backend metadata defaults and round-trips', () {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final legacy = ChatGroup.fromMap({
+      'id': 8,
+      'title': 'legacy',
+      'created_at': now,
+      'last_message_at': now,
+    });
+    expect(legacy.backendId, localAgentBackendId);
+    expect(legacy.backendSessionId, isNull);
+
+    final dsh = ChatGroup(
+      title: 'external session',
+      backendId: 'dsh',
+      backendSessionId: 'dsh-thread-123',
+    );
+    final restored = ChatGroup.fromMap(dsh.toMap()
+      ..['created_at'] = dsh.createdAt.millisecondsSinceEpoch
+      ..['last_message_at'] = dsh.lastMessageAt.millisecondsSinceEpoch);
+    expect(restored.backendId, 'dsh');
+    expect(restored.backendSessionId, 'dsh-thread-123');
   });
 
   test(

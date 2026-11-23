@@ -32,7 +32,9 @@ Flutter AI Chat 不是一个只负责“发请求拿文本”的聊天壳。
 flowchart LR
     UI["UI / Pages / Widgets"] --> Providers["Providers / Projection"]
     Providers --> Controllers["Controllers / Coordinators"]
-    Controllers --> TurnLoop["Turn Harness / Agent Loop"]
+    Controllers --> Backend["Session Backend Registry"]
+    Backend --> TurnLoop["Local Turn Harness / Agent Loop"]
+    Backend --> OtherBackend["Other Session Backends"]
     Controllers --> SessionContext["Session Context Assembly"]
     TurnLoop --> ToolRuntime["Tool Runtime / Policy / Executor"]
     TurnLoop --> ModelGateway["Model Gateway / Provider Adapters"]
@@ -41,6 +43,8 @@ flowchart LR
     SessionContext --> ModelGateway
     ToolRuntime --> Persistence
 ```
+
+聊天命令按会话绑定的 backend 路由。本地 Agent 保留 `TurnHarness` 和自己的 turn/event transcript；其他 backend 通过 history 与 presentation 契约接入。会话 backend ID 在当前生命周期中固定，旧会话默认为本地 Agent，不提供跨后端迁移。详细边界见[会话后端架构](./chat-session-backend-boundary.md)。
 
 ### 1. UI 层
 

@@ -505,6 +505,17 @@ class RuntimeStreamingPreviewController
     }
   }
 
+  /// Replace the session preview with a backend-projected preview snapshot.
+  void replaceSnapshot(RuntimeStreamingPreviewState preview) {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _pendingPublishedEventCount = 0;
+    _lastPublishedAt = DateTime.now();
+    _projector.clear();
+    if (!mounted) return;
+    state = preview;
+  }
+
   void removeMessage(String messageId) {
     _flushTimer?.cancel();
     _flushTimer = null;

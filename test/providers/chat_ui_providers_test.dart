@@ -321,7 +321,15 @@ void main() {
         ),
       );
 
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+      for (var attempt = 0; attempt < 20; attempt += 1) {
+        final preview = container.read(runtimeStreamingPreviewStateProvider);
+        if (preview.messages.isNotEmpty &&
+            preview.messages.single.blocks.isNotEmpty &&
+            preview.messages.single.blocks.single.text.contains('</div>')) {
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
 
       final state = container.read(runtimeStreamingPreviewStateProvider);
       expect(state.messages, hasLength(1));
